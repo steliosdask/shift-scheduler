@@ -1,0 +1,158 @@
+{
+  "identity": {
+    "theme": "Light",
+    "archetype": "Archetype 4: Swiss & High-Contrast (Adapted for Medical Admin)",
+    "rationale": "Medical scheduling requires absolute clarity, density, and functional authority. We avoid 'fintech dark mode' or generic 'SaaS blue'. The UI is strictly monochromatic to allow the constraint violation colors (Red/Yellow/Green) to command full attention. The aesthetic is clean, trustworthy, and heavily optimized for data density on mobile screens."
+  },
+  "colors": {
+    "background": {
+      "default": "#FAFAF9",
+      "surface": "#FFFFFF",
+      "surface_raised": "#F3F4F6",
+      "overlay": "rgba(0,0,0,0.4)"
+    },
+    "text": {
+      "primary": "#0A0D0A",
+      "secondary": "#4B5563",
+      "disabled": "#9CA3AF",
+      "inverse": "#FFFFFF"
+    },
+    "border": {
+      "default": "#E5E7EB",
+      "focus": "#111827"
+    },
+    "brand": {
+      "primary": "#111827",
+      "primary_hover": "#374151"
+    },
+    "status": {
+      "hard_violation_red": {
+        "bg": "#FEF2F2",
+        "border": "#EF4444",
+        "text": "#991B1B",
+        "icon": "XCircle"
+      },
+      "soft_warning_yellow": {
+        "bg": "#FEF9C3",
+        "border": "#EAB308",
+        "text": "#854D0E",
+        "icon": "AlertTriangle"
+      },
+      "ok_green": {
+        "bg": "#DCFCE7",
+        "border": "#22C55E",
+        "text": "#166534",
+        "icon": "CheckCircle"
+      },
+      "hospital_pagni_open": {
+        "bg": "#EFF6FF",
+        "text": "#1E40AF",
+        "border": "#BFDBFE"
+      },
+      "hospital_venizeleio_closed": {
+        "bg": "#F3F4F6",
+        "text": "#4B5563",
+        "border": "#D1D5DB"
+      }
+    }
+  },
+  "typography": {
+    "font_families": {
+      "heading": "Fira Sans, sans-serif",
+      "body": "IBM Plex Sans, sans-serif",
+      "mono": "IBM Plex Mono, monospace"
+    },
+    "rationale": "Both Fira Sans and IBM Plex Sans have exceptional Greek character support. Fira provides an authoritative, clean heading structure, while IBM Plex shines in dense, tabular data layouts like calendars.",
+    "hierarchy": {
+      "h1": "text-3xl font-bold tracking-tight text-primary",
+      "h2": "text-2xl font-semibold tracking-tight text-primary",
+      "h3": "text-xl font-medium tracking-tight text-primary",
+      "h4": "text-lg font-medium text-primary",
+      "body": "text-base font-normal text-secondary leading-relaxed",
+      "body_sm": "text-sm font-normal text-secondary",
+      "overline": "text-xs font-bold uppercase tracking-[0.15em] text-secondary"
+    }
+  },
+  "layout_and_spacing": {
+    "philosophy": "Mobile-first, dense but breathable. Utilize negative space aggressively outside the calendar, but pack the calendar grid tightly to minimize scroll fatigue.",
+    "scale": {
+      "container_padding": "p-4 md:p-8",
+      "section_gap": "gap-8 md:gap-12",
+      "element_gap": "gap-4"
+    },
+    "calendar_grid": {
+      "mobile": "Horizontal scroll container (overflow-x-auto, snap-x snap-mandatory) displaying 7 consecutive days (Sun-Sat). Columns must be fixed width (min-w-[120px]) to ensure legibility.",
+      "desktop": "Standard 7-column CSS grid (grid-cols-7) utilizing full width."
+    }
+  },
+  "component_patterns": {
+    "login_screen": {
+      "layout": "Full height, split layout on desktop, stacked on mobile.",
+      "visuals": "Use login_bg image as an edge-to-edge background with a heavy white glassmorphism overlay (backdrop-blur-2xl bg-white/80) for the form container.",
+      "elements": "Minimalist input fields (border-b only, no full outline), prominent black CTA button."
+    },
+    "dashboard": {
+      "layout": "List view of 'Past Schedules'.",
+      "card_style": "Cardless design. Use 1px border (border-border), no shadows. Hover state: subtle background tint (bg-gray-50), not a lift.",
+      "action": "Massive, high-contrast 'New Schedule' (Νέο Πρόγραμμα) CTA at the top."
+    },
+    "doctor_management": {
+      "layout": "Dense list. Avatar/Initial on left, name and stats on right.",
+      "actions": "Swipe-to-delete or explicit trailing action icons (Trash/Edit)."
+    },
+    "setup_wizard": {
+      "pattern": "Multi-step horizontal progress bar (stepper).",
+      "steps": [
+        "1. Select Month/Year",
+        "2. Confirm Active Doctors",
+        "3. Open/Closed Days (ΠΑΓΝΗ/ΒΕΝΙΖΕΛΕΙΟ) toggle calendar",
+        "4. Input Leaves/Negative Days"
+      ],
+      "navigation": "Sticky bottom bar with 'Next' (Επόμενο) and 'Back' (Πίσω) buttons to ensure easy thumb reach on mobile."
+    },
+    "calendar_grid_edit_view": {
+      "cell_design": "Border-collapse style (1px border-border on right and bottom). Each day cell shows date, hospital status (Open/Closed), and assigned doctor.",
+      "status_indicators": "Violations MUST be visible via background color AND an icon/shape for accessibility (e.g., Red bg + Cross icon for Hard Violation).",
+      "interaction": "Tap day cell -> triggers Bottom Sheet."
+    },
+    "day_edit_bottom_sheet": {
+      "mobile_behavior": "Fixed to bottom, slides up (framer-motion or CSS transform).",
+      "desktop_behavior": "Acts as a side-panel (drawer) sliding in from the right.",
+      "content": "List of available doctors. Greys out or heavily flags doctors who would trigger a violation if selected."
+    },
+    "summary_panel": {
+      "mobile": "Expandable sticky bar at the bottom, just above the main actions.",
+      "desktop": "Persistent right-side rail (col-span-1 in a 4-col layout).",
+      "metrics": "Total shifts (Εφημερίες), Weekends (Σ/Κ), Active Warnings."
+    }
+  },
+  "motion_and_interaction": {
+    "hover": "Background tinting (bg-gray-50) over scaling. Keep it grounded.",
+    "transitions": "Fast and snappy (duration-150 ease-out). Medical software should feel instantly responsive, not floaty.",
+    "bottom_sheet": "Spring physics for the drag/swipe to close interaction (duration-300 ease-spring)."
+  },
+  "accessibility_and_testing": {
+    "colorblind_safe": "Never rely solely on color for violations. Red MUST be paired with a warning icon; Green with a checkmark.",
+    "touch_targets": "Minimum 44x44px for all interactive elements (dates, buttons, toggles) for mobile usability.",
+    "data_testid": "MANDATORY on all buttons, calendar cells, and inputs (e.g., data-testid='doctor-select-btn', data-testid='calendar-cell-15')."
+  },
+  "image_urls": [
+    {
+      "category": "logo",
+      "url": "https://static.prod-images.emergentagent.com/jobs/6f2bf2d3-2bfa-412b-b665-da931d0d2c4a/images/6c4dd780234efd88f9466447763a9505cdecbca956332218770b352eb09a5bae.png",
+      "description": "Minimalist modern logo for the app"
+    },
+    {
+      "category": "login_background",
+      "url": "https://static.prod-images.emergentagent.com/jobs/6f2bf2d3-2bfa-412b-b665-da931d0d2c4a/images/864c95b990ae92314eb346282c0988a4b049c4a718773e50a60c4b3f9412cf1f.png",
+      "description": "Abstract minimalist architectural background for login screen"
+    }
+  ],
+  "instructions_to_main_agent": [
+    "Use standard HTML/Tailwind for structural layouts instead of heavily relying on nested Shadcn layout wrappers to ensure mobile fluidity.",
+    "Implement the calendar strictly as a grid with mobile horizontal scrolling (snap points) to maintain the Sun-Sat structure.",
+    "Greek UI Text implies the charset must be UTF-8 and typography must be Fira Sans & IBM Plex Sans.",
+    "Ensure the PDF export feature formats exactly to A4 landscape layout. Use print-specific CSS media queries or a dedicated library.",
+    "Include 'data-testid' on every actionable element, as specified in the accessibility rules."
+  ]
+}
