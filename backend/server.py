@@ -402,18 +402,21 @@ async def validate(schedule_id: str, payload: dict = None, current: dict = Depen
 
 
 @api.get("/schedules/{schedule_id}/export-pdf")
-async def export_pdf(schedule_id: str, token: Optional[str] = None, current: Optional[dict] = None):
-    # Allow token via query string for direct download in mobile webview if needed
-    if current is None:
-        if not token:
-            raise HTTPException(401, "Δεν είστε συνδεδεμένος")
-        try:
-            payload = jwt.decode(token, get_jwt_secret(), algorithms=[JWT_ALGORITHM])
-            user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
-            if not user:
-                raise HTTPException(401, "Ο χρήστης δεν βρέθηκε")
-        except Exception:
-            raise HTTPException(401, "Μη έγκυρο token")
+async def export_pdf(schedule_id: str, request: Request, token: Optional[str] = None):
+    # Accept either Bearer header OR ?token= query param (mobile Linking.openURL compat)
+    auth = request.headers.get("Authorization", "")
+    raw_token = token or (auth[7:] if auth.startswith("Bearer ") else None)
+    if not raw_token:
+        raise HTTPException(401, "Δεν είστε συνδεδεμένος")
+    try:
+        payload = jwt.decode(raw_token, get_jwt_secret(), algorithms=[JWT_ALGORITHM])
+        user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
+        if not user:
+            raise HTTPException(401, "Ο χρήστης δεν βρέθηκε")
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(401, "Το token έχει λήξει")
+    except jwt.InvalidTokenError:
+        raise HTTPException(401, "Μη έγκυρο token")
 
     s = await db.schedules.find_one({"id": schedule_id}, {"_id": 0})
     if not s:
