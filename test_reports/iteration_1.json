@@ -1,0 +1,42 @@
+{
+  "summary": "Full end-to-end test of the Greek Shift Scheduler (backend + mobile-web frontend). Backend: 13/14 pytest passed (93%). Frontend: full happy path (login → dashboard → doctors → wizard 4 steps → schedule edit → day cell bottom sheet → PDF export) works with no console errors. Greek UI strings, seeded doctors, 2026 holidays, auto-generation, validation, PDF export, JWT auth all verified.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "GET /api/schedules/{id}/export-pdf",
+        "issue": "The endpoint ignores the Authorization: Bearer header. The `current` parameter is declared as Optional[dict]=None but NOT wired to Depends(get_current_user), so a request with only the Bearer header (no ?token= query param) returns 401. This is not user-facing because the frontend uses ?token= via Linking.openURL, but any direct API client following the Bearer convention will be blocked. Fix: add `current: dict = Depends(get_current_user)` or fall through from header if present."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_scheduler_api.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(Optional, non-blocking) Wire `Depends(get_current_user)` on /api/schedules/{id}/export-pdf so Bearer-header auth also works, in addition to the existing ?token= query-param path used by the mobile app."
+  ],
+  "critical_code_review_comments": [
+    "server.py export_pdf signature is misleading: `current: Optional[dict] = None` is never bound to a dependency, so the Bearer-header branch never triggers. Either remove it or wire it via Depends.",
+    "POST /api/schedules silently deletes existing draft for same (year, month) on re-create — works per design but worth a confirmation dialog on the client to avoid accidental overwrites.",
+    "startup() re-hashes the admin password only if verify_password fails — good. bcrypt hash confirmed generated at runtime ($2b$ style) — no $ expansion issues since ADMIN_PASSWORD comes from .env via os.environ.",
+    "server.py is ~500 lines — still manageable but could be split into routers (auth, doctors, schedules) as the app grows.",
+    "Schedule `shifts` count is asserted only inside auto-generate; initial create leaves shifts=[] — fine, wizard triggers /generate next."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_scheduler_api.py (new)",
+    "/app/test_reports/iteration_1.json (new)"
+  ],
+  "success_rate": { "backend": "93%", "frontend": "100%" },
+  "seed_data_creation": "No manual seeding. Backend auto-seeds chief admin + 7 Greek sample doctors on startup. One test schedule for 2026-06 was created via wizard during frontend testing and remains in the DB (status=draft, can be safely left or deleted).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Tested via EXPO_PUBLIC_BACKEND_URL (https://doctor-duty-planner.preview.emergentagent.com). Login defaults to chief@hospital.gr/chief2026 (auto-filled on login screen, single-click Σύνδεση works). Key testIDs confirmed: login-email-input, login-password-input, login-submit-btn, new-schedule-btn, manage-doctors-btn, logout-btn, wizard-back-btn, wizard-next-btn, month-{1..12}, year-{2025..2027}, doctor-toggle-{uuid}, schedule-row-{year}-{month}, day-cell-{YYYY-MM-DD}, day-edit-sheet, assign-doctor-{uuid}, close-sheet-btn, auto-generate-btn, save-draft-btn, finalize-btn, export-pdf-btn, summary-btn. PDF export on web opens a new tab with ?token=<jwt>.",
+  "rca_of_issue": "Minor: export_pdf handler bug. Root cause: FastAPI endpoint was defined with two optional arg-style params (token, current) but `current` is not bound to a dependency, so when the client sends only Authorization: Bearer (no ?token=) the handler falls into `if current is None: if not token: raise 401`. Reproduction: `curl -H 'Authorization: Bearer <jwt>' <API>/schedules/<id>/export-pdf` → 401. Works: same URL with `?token=<jwt>` → 200 PDF. Mitigation: either add `current: dict = Depends(get_current_user)` (recommended) or extract Bearer token manually in the body when `current` is None. Impact on UX: none, because mobile client uses Linking.openURL with ?token=."
+}
