@@ -130,15 +130,30 @@ def generate_schedule(
     month: int,
     day_definitions: list[dict],  # [{date, type}]
     doctors: list[dict],  # [{id, full_name, negative_days, leaves}]
-    target_per_doctor: int = 6,
-    max_attempts: int = 200,
+    target_per_doctor: Optional[int] = None,
+    max_attempts: int = 300,
 ) -> Optional[list[dict]]:
-    """Attempt to generate a valid schedule. Returns list of {date, type, doctors:[ids]} or None."""
+    """Attempt to generate a valid schedule. Returns list of {date, type, doctors:[ids]}.
+    If perfect backtracking fails, falls back to greedy partial solution so chief can edit.
+    Returns None only when there are zero doctors."""
     if not doctors:
         return None
 
-    # Build slots: each open day = 2 slots, closed = 1 slot, ordered by date
     days_sorted = sorted(day_definitions, key=lambda x: x["date"])
+
+    # Dynamic target: total slots / doctors (rounded)
+    total_slots = sum(2 if d["type"] == "open" else 1 for d in days_sorted)
+    if target_per_doctor is None:
+        target_per_doctor = max(1, round(total_slots / len(doctors)))
+
+    flag_map = {d["date"]: (d.get("is_weekend", False), d.get("is_holiday", False)) for d in days_sorted}
+
+    def _attach_flags(result):
+        for entry in result:
+            iw, ih = flag_map.get(entry["date"], (False, False))
+            entry["is_weekend"] = iw
+            entry["is_holiday"] = ih
+        return result
 
     best_solution = None
     best_score = float("inf")
@@ -148,12 +163,7 @@ def generate_schedule(
         result = _attempt_one(days_sorted, doctors, target_per_doctor)
         if result is None:
             continue
-        # Carry over is_weekend/is_holiday flags from input day_definitions
-        flag_map = {d["date"]: (d.get("is_weekend", False), d.get("is_holiday", False)) for d in days_sorted}
-        for entry in result:
-            iw, ih = flag_map.get(entry["date"], (False, False))
-            entry["is_weekend"] = iw
-            entry["is_holiday"] = ih
+        _attach_flags(result)
         # Score it (lower is better): sum of squared deviation from target + weekend imbalance
         stats = {d["id"]: {"shifts": 0, "weekends": 0, "holidays": 0} for d in doctors}
         for entry in result:
@@ -175,7 +185,46 @@ def generate_schedule(
             best_solution = result
             if score < 1.0:  # near optimal
                 break
-    return best_solution
+
+    if best_solution is not None:
+        return best_solution
+
+    # Fallback: greedy partial assignment (some slots may stay empty)
+    return _attach_flags(_greedy_partial(days_sorted, doctors))
+
+
+def _greedy_partial(days_sorted: list[dict], doctors: list[dict]) -> list[dict]:
+    """Greedy: for each day, pick least-loaded available doctors. Skips slots that cannot be filled.
+    Returns a partial schedule the chief can manually complete."""
+    doc_assignments: dict[str, list[date]] = {d["id"]: [] for d in doctors}
+    result: list[dict] = []
+    random.seed(0)
+    for dd in days_sorted:
+        d = date.fromisoformat(dd["date"])
+        n_required = 2 if dd["type"] == "open" else 1
+        candidates = sorted(
+            doctors,
+            key=lambda x: (len(doc_assignments[x["id"]]), random.random()),
+        )
+        chosen: list[str] = []
+        for doc in candidates:
+            if len(chosen) >= n_required:
+                break
+            if doc["id"] in chosen:
+                continue
+            if _doctor_unavailable(doc, d):
+                continue
+            ok = True
+            for prev in doc_assignments[doc["id"]]:
+                if abs((d - prev).days) < 4:
+                    ok = False
+                    break
+            if not ok:
+                continue
+            chosen.append(doc["id"])
+            doc_assignments[doc["id"]].append(d)
+        result.append({"date": dd["date"], "type": dd["type"], "doctors": chosen})
+    return result
 
 
 def _attempt_one(

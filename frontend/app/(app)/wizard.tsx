@@ -394,7 +394,10 @@ export default function Wizard() {
                       key={c.doctor_id}
                       testID={`select-doctor-${c.doctor_id}`}
                       style={[styles.chip, isActive && styles.chipActive]}
-                      onPress={() => setActiveDoctor(c.doctor_id)}
+                      onPress={() => {
+                        setActiveDoctor(c.doctor_id);
+                        setStep4Mode('negative');
+                      }}
                     >
                       <Text style={[styles.chipText, isActive && styles.chipTextActive]}>
                         {doc.full_name.split(' ')[0]}
