@@ -18,12 +18,19 @@ import { api, formatApiError } from '../../lib/api';
 const STEPS = ['Μήνας', 'Γιατροί', 'Ημέρες', 'Άδειες'];
 
 type Doctor = { id: string; full_name: string; is_active: boolean };
-type DayDef = { date: string; type: 'open' | 'closed'; is_weekend?: boolean; is_holiday?: boolean };
+type DayDef = {
+  date: string;
+  type: 'open' | 'closed';
+  is_weekend?: boolean;
+  is_holiday?: boolean;
+  is_custom_holiday?: boolean;
+};
+type Leave = { start_date: string; end_date: string; reason?: string };
 type Constraint = {
   doctor_id: string;
   is_participating: boolean;
   negative_days: string[];
-  leaves: { start_date: string; end_date: string; reason?: string }[];
+  leaves: Leave[];
 };
 
 const todayY = new Date().getFullYear();
@@ -38,6 +45,7 @@ function buildDefaultDays(year: number, month: number): DayDef[] {
       date: `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`,
       type: d % 2 === 1 ? 'open' : 'closed',
       is_weekend: dt.getDay() === 0 || dt.getDay() === 6,
+      is_custom_holiday: false,
     });
   }
   return out;
@@ -53,6 +61,8 @@ export default function Wizard() {
   const [days, setDays] = useState<DayDef[]>(buildDefaultDays(todayY, todayM === 12 ? 1 : todayM + 1));
   const [constraints, setConstraints] = useState<Constraint[]>([]);
   const [activeDoctor, setActiveDoctor] = useState<string>('');
+  const [step3Mode, setStep3Mode] = useState<'shift' | 'holiday'>('shift'); // Α/Κ vs αργίες
+  const [step4Mode, setStep4Mode] = useState<'negative' | 'leave'>('negative');
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
 
@@ -63,7 +73,9 @@ export default function Wizard() {
         const [d, h] = await Promise.all([api.get('/doctors'), api.get(`/holidays/${year}`)]);
         setDoctors(d.data);
         const map: Record<string, string> = {};
-        h.data.holidays.forEach((x: any) => { map[x.date] = x.name; });
+        h.data.holidays.forEach((x: any) => {
+          map[x.date] = x.name;
+        });
         setHolidays(map);
         setConstraints(
           d.data.map((doc: Doctor) => ({
@@ -92,11 +104,21 @@ export default function Wizard() {
   };
 
   const toggleDayType = (date: string) => {
-    setDays((prev) => prev.map((d) => (d.date === date ? { ...d, type: d.type === 'open' ? 'closed' : 'open' } : d)));
+    setDays((prev) =>
+      prev.map((d) => (d.date === date ? { ...d, type: d.type === 'open' ? 'closed' : 'open' } : d))
+    );
+  };
+
+  const toggleCustomHoliday = (date: string) => {
+    setDays((prev) =>
+      prev.map((d) => (d.date === date ? { ...d, is_custom_holiday: !d.is_custom_holiday } : d))
+    );
   };
 
   const setAllAlternating = (startOpen: boolean) => {
-    setDays((prev) => prev.map((d, i) => ({ ...d, type: (i % 2 === 0) === startOpen ? 'open' : 'closed' })));
+    setDays((prev) =>
+      prev.map((d, i) => ({ ...d, type: (i % 2 === 0) === startOpen ? 'open' : 'closed' }))
+    );
   };
 
   const toggleNegativeDay = (doctorId: string, date: string) => {
@@ -112,25 +134,37 @@ export default function Wizard() {
     );
   };
 
+  const toggleLeaveDay = (doctorId: string, date: string) => {
+    setConstraints((prev) =>
+      prev.map((c) => {
+        if (c.doctor_id !== doctorId) return c;
+        const exists = c.leaves.find((l) => l.start_date === date && l.end_date === date);
+        return {
+          ...c,
+          leaves: exists
+            ? c.leaves.filter((l) => !(l.start_date === date && l.end_date === date))
+            : [...c.leaves, { start_date: date, end_date: date }],
+        };
+      })
+    );
+  };
+
   const onCreate = async () => {
     setCreating(true);
     try {
-      // 1. Create schedule
       const r = await api.post('/schedules', { year, month });
       const scheduleId = r.data.id;
-      // 2. Update with day_definitions, doctor_constraints
       await api.put(`/schedules/${scheduleId}`, {
         day_definitions: days,
         doctor_constraints: constraints,
       });
-      // 3. Auto-generate
       try {
         await api.post(`/schedules/${scheduleId}/generate`);
       } catch (e: any) {
-        // Allow user to continue even if generation fails
         Alert.alert(
           'Αυτόματη δημιουργία',
-          formatApiError(e) + '\n\nΘα μεταβείτε στην επεξεργασία για χειροκίνητη ανάθεση.'
+          formatApiError(e) +
+            '\n\nΘα μεταβείτε στην επεξεργασία για χειροκίνητη ανάθεση.'
         );
       }
       router.replace(`/(app)/schedule/${scheduleId}`);
@@ -143,6 +177,10 @@ export default function Wizard() {
 
   const activeCount = constraints.filter((c) => c.is_participating).length;
   const monthNumDays = days.length;
+  const activeConstraint = constraints.find((c) => c.doctor_id === activeDoctor);
+  const leaveDates = (activeConstraint?.leaves || [])
+    .filter((l) => l.start_date === l.end_date)
+    .map((l) => l.start_date);
 
   if (loading) {
     return (
@@ -155,14 +193,17 @@ export default function Wizard() {
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.header}>
-        <TouchableOpacity testID="wizard-back-btn" onPress={() => (step === 0 ? router.back() : setStep(step - 1))} style={styles.iconBtn}>
+        <TouchableOpacity
+          testID="wizard-back-btn"
+          onPress={() => (step === 0 ? router.back() : setStep(step - 1))}
+          style={styles.iconBtn}
+        >
           <Ionicons name="chevron-back" size={22} color={Theme.colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Νέο Πρόγραμμα</Text>
         <View style={styles.iconBtn} />
       </View>
 
-      {/* Stepper */}
       <View style={styles.stepper}>
         {STEPS.map((label, idx) => (
           <View key={label} style={styles.stepItem}>
@@ -179,7 +220,6 @@ export default function Wizard() {
           <View>
             <Text style={styles.h2}>Επιλέξτε Μήνα & Έτος</Text>
             <Text style={styles.help}>Για ποιον μήνα θα δημιουργήσετε πρόγραμμα εφημεριών;</Text>
-
             <Text style={styles.label}>Μήνας</Text>
             <View style={styles.chipsWrap}>
               {GREEK_MONTHS.slice(1).map((m, idx) => (
@@ -189,11 +229,12 @@ export default function Wizard() {
                   onPress={() => setMonth(idx + 1)}
                   style={[styles.chip, month === idx + 1 && styles.chipActive]}
                 >
-                  <Text style={[styles.chipText, month === idx + 1 && styles.chipTextActive]}>{m.slice(0, 3)}</Text>
+                  <Text style={[styles.chipText, month === idx + 1 && styles.chipTextActive]}>
+                    {m.slice(0, 3)}
+                  </Text>
                 </TouchableOpacity>
               ))}
             </View>
-
             <Text style={styles.label}>Έτος</Text>
             <View style={styles.chipsWrap}>
               {[todayY - 1, todayY, todayY + 1].map((y) => (
@@ -207,7 +248,6 @@ export default function Wizard() {
                 </TouchableOpacity>
               ))}
             </View>
-
             <View style={styles.summaryBox}>
               <Text style={styles.summaryEyebrow}>Επιλογή</Text>
               <Text style={styles.summaryText}>
@@ -220,7 +260,9 @@ export default function Wizard() {
         {step === 1 && (
           <View>
             <Text style={styles.h2}>Επιβεβαίωση Γιατρών</Text>
-            <Text style={styles.help}>Επιλέξτε ποιοι γιατροί θα συμμετέχουν στο πρόγραμμα ({activeCount}/{doctors.length})</Text>
+            <Text style={styles.help}>
+              Επιλέξτε ποιοι γιατροί θα συμμετέχουν στο πρόγραμμα ({activeCount}/{doctors.length})
+            </Text>
             {doctors.map((d) => {
               const c = constraints.find((x) => x.doctor_id === d.id);
               return (
@@ -246,29 +288,61 @@ export default function Wizard() {
           <View>
             <Text style={styles.h2}>Ανοιχτές / Κλειστές Ημέρες</Text>
             <Text style={styles.help}>
-              Πατήστε σε κάθε ημέρα για εναλλαγή: <Text style={{ color: Theme.colors.pagniText, fontWeight: '700' }}>Α</Text> = Ανοιχτή (ΠΑΓΝΗ, 2 γιατροί), <Text style={{ fontWeight: '700' }}>Κ</Text> = Κλειστή (ΒΕΝΙΖΕΛΕΙΟ, 1 γιατρός)
+              <Text style={{ color: Theme.colors.okText, fontWeight: '700' }}>Πράσινο</Text> = εφημερεύει το νοσοκομείο (Α). {' '}
+              <Text style={{ color: Theme.colors.hardText, fontWeight: '700' }}>Κόκκινο</Text> = δεν εφημερεύει (Κ). Σ/Κ με κίτρινο πλαίσιο.
             </Text>
-            <View style={styles.bulkRow}>
+
+            {/* Mode toggle */}
+            <View style={styles.modeRow}>
               <TouchableOpacity
-                testID="bulk-alt-open"
-                onPress={() => setAllAlternating(true)}
-                style={[styles.btn, styles.btnGhost, { flex: 1 }]}
+                testID="mode-shift"
+                onPress={() => setStep3Mode('shift')}
+                style={[styles.modeBtn, step3Mode === 'shift' && styles.modeBtnActive]}
               >
-                <Text style={styles.btnGhostText}>Α/Κ από 1η</Text>
+                <Text style={[styles.modeText, step3Mode === 'shift' && styles.modeTextActive]}>
+                  Εφημερίες (Α/Κ)
+                </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                testID="bulk-alt-closed"
-                onPress={() => setAllAlternating(false)}
-                style={[styles.btn, styles.btnGhost, { flex: 1 }]}
+                testID="mode-holiday"
+                onPress={() => setStep3Mode('holiday')}
+                style={[styles.modeBtn, step3Mode === 'holiday' && styles.modeBtnActive]}
               >
-                <Text style={styles.btnGhostText}>Κ/Α από 1η</Text>
+                <Text style={[styles.modeText, step3Mode === 'holiday' && styles.modeTextActive]}>
+                  Έξτρα Αργίες
+                </Text>
               </TouchableOpacity>
             </View>
+
+            {step3Mode === 'shift' ? (
+              <View style={styles.bulkRow}>
+                <TouchableOpacity
+                  testID="bulk-alt-open"
+                  onPress={() => setAllAlternating(true)}
+                  style={[styles.btn, styles.btnGhost, { flex: 1 }]}
+                >
+                  <Text style={styles.btnGhostText}>Α/Κ από 1η</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  testID="bulk-alt-closed"
+                  onPress={() => setAllAlternating(false)}
+                  style={[styles.btn, styles.btnGhost, { flex: 1 }]}
+                >
+                  <Text style={styles.btnGhostText}>Κ/Α από 1η</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <Text style={styles.modeHelp}>
+                Πατήστε στις ημέρες που θέλετε να σημειώσετε ως επιπλέον αργίες (πέραν των ελληνικών αργιών που σημειώνονται αυτόματα).
+              </Text>
+            )}
 
             <View style={styles.dayGrid}>
               <View style={styles.weekRow}>
                 {GREEK_DAYS_SHORT.map((dn) => (
-                  <Text key={dn} style={styles.weekHead}>{dn}</Text>
+                  <Text key={dn} style={styles.weekHead}>
+                    {dn}
+                  </Text>
                 ))}
               </View>
               <DayCalendarGrid
@@ -276,8 +350,28 @@ export default function Wizard() {
                 month={month}
                 days={days}
                 holidays={holidays}
-                onPressDay={toggleDayType}
+                onPressDay={step3Mode === 'shift' ? toggleDayType : toggleCustomHoliday}
+                mode={step3Mode === 'shift' ? 'shift-green-red' : 'holiday'}
               />
+            </View>
+
+            <View style={styles.legendInline}>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendBox, { backgroundColor: Theme.colors.okBg, borderColor: Theme.colors.okBorder }]} />
+                <Text style={styles.legendText}>Εφημερεύει (Α)</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendBox, { backgroundColor: Theme.colors.hardBg, borderColor: Theme.colors.hardBorder }]} />
+                <Text style={styles.legendText}>Δεν εφημερεύει (Κ)</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendBox, { backgroundColor: Theme.colors.surface, borderColor: Theme.colors.softBorder, borderWidth: 2 }]} />
+                <Text style={styles.legendText}>Σ/Κ</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendBox, { backgroundColor: Theme.colors.softBg, borderColor: Theme.colors.softBorder }]} />
+                <Text style={styles.legendText}>Αργία</Text>
+              </View>
             </View>
           </View>
         )}
@@ -289,43 +383,108 @@ export default function Wizard() {
               Επιλέξτε γιατρό και πατήστε στις ημέρες που δεν είναι διαθέσιμος/η.
             </Text>
             <View style={styles.chipsWrap}>
-              {constraints.filter((c) => c.is_participating).map((c) => {
-                const doc = doctors.find((d) => d.id === c.doctor_id)!;
-                const isActive = activeDoctor === c.doctor_id;
-                return (
+              {constraints
+                .filter((c) => c.is_participating)
+                .map((c) => {
+                  const doc = doctors.find((d) => d.id === c.doctor_id)!;
+                  const isActive = activeDoctor === c.doctor_id;
+                  const total = c.negative_days.length + c.leaves.length;
+                  return (
+                    <TouchableOpacity
+                      key={c.doctor_id}
+                      testID={`select-doctor-${c.doctor_id}`}
+                      style={[styles.chip, isActive && styles.chipActive]}
+                      onPress={() => setActiveDoctor(c.doctor_id)}
+                    >
+                      <Text style={[styles.chipText, isActive && styles.chipTextActive]}>
+                        {doc.full_name.split(' ')[0]}
+                        {total > 0 ? ` (${total})` : ''}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+            </View>
+
+            {activeDoctor ? (
+              <>
+                {/* Two-button mode selector */}
+                <View style={styles.modeRow}>
                   <TouchableOpacity
-                    key={c.doctor_id}
-                    testID={`select-doctor-${c.doctor_id}`}
-                    style={[styles.chip, isActive && styles.chipActive]}
-                    onPress={() => setActiveDoctor(c.doctor_id)}
+                    testID="mode-negative"
+                    onPress={() => setStep4Mode('negative')}
+                    style={[
+                      styles.modeBtn,
+                      step4Mode === 'negative' && styles.modeBtnNegative,
+                    ]}
                   >
-                    <Text style={[styles.chipText, isActive && styles.chipTextActive]}>
-                      {doc.full_name.split(' ')[0]}
-                      {c.negative_days.length > 0 ? ` (${c.negative_days.length})` : ''}
+                    <Ionicons
+                      name="close-circle-outline"
+                      size={16}
+                      color={step4Mode === 'negative' ? Theme.colors.textInverse : Theme.colors.hardText}
+                    />
+                    <Text
+                      style={[
+                        styles.modeText,
+                        step4Mode === 'negative' && styles.modeTextActive,
+                      ]}
+                    >
+                      Αρνητικές Ημέρες ({activeConstraint?.negative_days.length || 0})
                     </Text>
                   </TouchableOpacity>
-                );
-              })}
-            </View>
-            {activeDoctor ? (
-              <View style={styles.dayGrid}>
-                <View style={styles.weekRow}>
-                  {GREEK_DAYS_SHORT.map((dn) => (
-                    <Text key={dn} style={styles.weekHead}>{dn}</Text>
-                  ))}
+                  <TouchableOpacity
+                    testID="mode-leave"
+                    onPress={() => setStep4Mode('leave')}
+                    style={[
+                      styles.modeBtn,
+                      step4Mode === 'leave' && styles.modeBtnLeave,
+                    ]}
+                  >
+                    <Ionicons
+                      name="airplane-outline"
+                      size={16}
+                      color={step4Mode === 'leave' ? Theme.colors.textInverse : Theme.colors.pagniText}
+                    />
+                    <Text
+                      style={[
+                        styles.modeText,
+                        step4Mode === 'leave' && styles.modeTextActive,
+                      ]}
+                    >
+                      Άδειες ({activeConstraint?.leaves.length || 0})
+                    </Text>
+                  </TouchableOpacity>
                 </View>
-                <DayCalendarGrid
-                  year={year}
-                  month={month}
-                  days={days}
-                  holidays={holidays}
-                  negativeDays={
-                    constraints.find((c) => c.doctor_id === activeDoctor)?.negative_days || []
-                  }
-                  onPressDay={(date) => toggleNegativeDay(activeDoctor, date)}
-                  showNegative
-                />
-              </View>
+
+                <Text style={styles.modeHelp}>
+                  {step4Mode === 'negative'
+                    ? 'Αρνητικές: ημέρες που ο γιατρός θα προτιμούσε να μην εφημερεύσει.'
+                    : 'Άδειες: ημέρες κανονικής άδειας — ο γιατρός δεν μπορεί να εφημερεύσει.'}
+                </Text>
+
+                <View style={styles.dayGrid}>
+                  <View style={styles.weekRow}>
+                    {GREEK_DAYS_SHORT.map((dn) => (
+                      <Text key={dn} style={styles.weekHead}>
+                        {dn}
+                      </Text>
+                    ))}
+                  </View>
+                  <DayCalendarGrid
+                    year={year}
+                    month={month}
+                    days={days}
+                    holidays={holidays}
+                    negativeDays={step4Mode === 'negative' ? activeConstraint?.negative_days || [] : []}
+                    leaveDays={step4Mode === 'leave' ? leaveDates : []}
+                    onPressDay={(d) =>
+                      step4Mode === 'negative'
+                        ? toggleNegativeDay(activeDoctor, d)
+                        : toggleLeaveDay(activeDoctor, d)
+                    }
+                    mode={step4Mode === 'negative' ? 'negative' : 'leave'}
+                  />
+                </View>
+              </>
             ) : (
               <Text style={styles.help}>Επιλέξτε έναν γιατρό από τα παραπάνω.</Text>
             )}
@@ -372,19 +531,21 @@ function DayCalendarGrid({
   days,
   holidays,
   negativeDays = [],
+  leaveDays = [],
   onPressDay,
-  showNegative = false,
+  mode,
 }: {
   year: number;
   month: number;
   days: DayDef[];
   holidays: Record<string, string>;
   negativeDays?: string[];
+  leaveDays?: string[];
   onPressDay: (date: string) => void;
-  showNegative?: boolean;
+  mode: 'shift-green-red' | 'holiday' | 'negative' | 'leave';
 }) {
   const first = new Date(year, month - 1, 1);
-  const leading = first.getDay(); // Sun=0
+  const leading = first.getDay();
   const cells: (DayDef | null)[] = [];
   for (let i = 0; i < leading; i++) cells.push(null);
   days.forEach((d) => cells.push(d));
@@ -397,41 +558,81 @@ function DayCalendarGrid({
       {weeks.map((wk, wIdx) => (
         <View key={wIdx} style={{ flexDirection: 'row' }}>
           {wk.map((d, cIdx) => {
-            if (!d) return <View key={cIdx} style={[styles.dayCell, { backgroundColor: 'transparent', borderColor: 'transparent' }]} />;
+            if (!d) {
+              return (
+                <View
+                  key={cIdx}
+                  style={[styles.dayCell, { backgroundColor: 'transparent', borderColor: 'transparent' }]}
+                />
+              );
+            }
             const isWeekend = d.is_weekend;
-            const isHoliday = !!holidays[d.date];
+            const isAutoHoliday = !!holidays[d.date];
+            const isHoliday = isAutoHoliday || d.is_custom_holiday;
             const isNeg = negativeDays.includes(d.date);
+            const isLeave = leaveDays.includes(d.date);
             const num = parseInt(d.date.slice(8), 10);
-            const cellBg = showNegative
-              ? isNeg
-                ? Theme.colors.hardBg
-                : isHoliday
+
+            let cellBg: string;
+            let borderColor = Theme.colors.border;
+            let borderWidth = 1;
+            let labelChar = '';
+            let labelColor = Theme.colors.textPrimary;
+            let icon: any = null;
+
+            if (mode === 'shift-green-red') {
+              cellBg = d.type === 'open' ? Theme.colors.okBg : Theme.colors.hardBg;
+              labelChar = d.type === 'open' ? 'Α' : 'Κ';
+              labelColor = d.type === 'open' ? Theme.colors.okText : Theme.colors.hardText;
+              if (isHoliday) {
+                cellBg = Theme.colors.softBg;
+              }
+            } else if (mode === 'holiday') {
+              cellBg = d.is_custom_holiday
                 ? Theme.colors.softBg
-                : isWeekend
-                ? '#FEF2F2'
-                : Theme.colors.surface
-              : d.type === 'open'
-              ? Theme.colors.pagniBg
-              : Theme.colors.venizeleioBg;
+                : isAutoHoliday
+                ? Theme.colors.softBg
+                : Theme.colors.surface;
+              if (d.is_custom_holiday) {
+                icon = <Ionicons name="star" size={11} color={Theme.colors.softText} />;
+              } else if (isAutoHoliday) {
+                icon = <Ionicons name="lock-closed" size={10} color={Theme.colors.softText} />;
+              }
+            } else if (mode === 'negative') {
+              cellBg = isNeg ? Theme.colors.hardBg : isHoliday ? Theme.colors.softBg : Theme.colors.surface;
+              if (isNeg) {
+                icon = <Ionicons name="close-circle" size={14} color={Theme.colors.hardBorder} />;
+              }
+            } else {
+              // leave
+              cellBg = isLeave ? Theme.colors.pagniBg : isHoliday ? Theme.colors.softBg : Theme.colors.surface;
+              if (isLeave) {
+                icon = <Ionicons name="airplane" size={12} color={Theme.colors.pagniText} />;
+              }
+            }
+
+            // Yellow border for weekends (always except auto-holidays which use full yellow bg)
+            if (isWeekend) {
+              borderColor = Theme.colors.softBorder;
+              borderWidth = 2;
+            }
+
             return (
               <TouchableOpacity
                 key={cIdx}
                 testID={`cal-${d.date}`}
                 onPress={() => onPressDay(d.date)}
-                style={[styles.dayCell, { backgroundColor: cellBg }]}
+                style={[styles.dayCell, { backgroundColor: cellBg, borderColor, borderWidth }]}
                 activeOpacity={0.7}
               >
-                <Text style={[styles.dayNum, isHoliday && { color: Theme.colors.softText }]}>{num}</Text>
-                {showNegative ? (
-                  isNeg ? (
-                    <Ionicons name="close-circle" size={14} color={Theme.colors.hardBorder} />
-                  ) : null
-                ) : (
-                  <Text style={[styles.dayType, d.type === 'open' ? { color: Theme.colors.pagniText } : { color: Theme.colors.venizeleioText }]}>
-                    {d.type === 'open' ? 'Α' : 'Κ'}
-                  </Text>
-                )}
-                {isHoliday && !showNegative && (
+                <Text style={[styles.dayNum, isAutoHoliday && { color: Theme.colors.softText }]}>
+                  {num}
+                </Text>
+                {labelChar ? (
+                  <Text style={[styles.dayType, { color: labelColor }]}>{labelChar}</Text>
+                ) : null}
+                {icon}
+                {isAutoHoliday && mode === 'shift-green-red' && (
                   <View style={styles.holidayDot} />
                 )}
               </TouchableOpacity>
@@ -447,23 +648,40 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Theme.colors.bg },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: Theme.colors.bg },
   header: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: Theme.spacing.md, paddingTop: Theme.spacing.md, gap: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Theme.spacing.md,
+    paddingTop: Theme.spacing.md,
+    gap: 12,
   },
   title: { flex: 1, fontSize: 18, fontWeight: '700', color: Theme.colors.textPrimary, textAlign: 'center' },
   iconBtn: {
-    width: 40, height: 40, borderRadius: Theme.radius.md,
-    borderWidth: 1, borderColor: Theme.colors.border,
-    alignItems: 'center', justifyContent: 'center',
+    width: 40,
+    height: 40,
+    borderRadius: Theme.radius.md,
+    borderWidth: 1,
+    borderColor: Theme.colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   stepper: {
-    flexDirection: 'row', justifyContent: 'space-around', paddingVertical: Theme.spacing.md,
-    paddingHorizontal: Theme.spacing.sm, borderBottomWidth: 1, borderBottomColor: Theme.colors.border,
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingVertical: Theme.spacing.md,
+    paddingHorizontal: Theme.spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: Theme.colors.border,
   },
   stepItem: { alignItems: 'center', gap: 4 },
   stepCircle: {
-    width: 28, height: 28, borderRadius: 14, borderWidth: 1.5, borderColor: Theme.colors.border,
-    alignItems: 'center', justifyContent: 'center', backgroundColor: Theme.colors.surface,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: Theme.colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Theme.colors.surface,
   },
   stepCircleActive: { borderColor: Theme.colors.brand, backgroundColor: Theme.colors.brand },
   stepNum: { fontSize: 12, fontWeight: '700', color: Theme.colors.textDisabled },
@@ -472,57 +690,154 @@ const styles = StyleSheet.create({
   stepLabelActive: { color: Theme.colors.textPrimary },
   h2: { fontSize: 22, fontWeight: '700', color: Theme.colors.textPrimary, marginBottom: 4 },
   help: { fontSize: 13, color: Theme.colors.textSecondary, marginBottom: Theme.spacing.lg },
-  label: { fontSize: 11, fontWeight: '700', color: Theme.colors.textSecondary, letterSpacing: 1.2, textTransform: 'uppercase', marginTop: Theme.spacing.md, marginBottom: 8 },
+  label: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: Theme.colors.textSecondary,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    marginTop: Theme.spacing.md,
+    marginBottom: 8,
+  },
   chipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: {
-    paddingVertical: 8, paddingHorizontal: 14, borderRadius: Theme.radius.sm,
-    borderWidth: 1, borderColor: Theme.colors.border, backgroundColor: Theme.colors.surface,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: Theme.radius.sm,
+    borderWidth: 1,
+    borderColor: Theme.colors.border,
+    backgroundColor: Theme.colors.surface,
   },
   chipActive: { backgroundColor: Theme.colors.brand, borderColor: Theme.colors.brand },
   chipText: { fontSize: 13, fontWeight: '600', color: Theme.colors.textPrimary },
   chipTextActive: { color: Theme.colors.textInverse },
   summaryBox: {
-    marginTop: Theme.spacing.xl, padding: Theme.spacing.md,
-    borderWidth: 1, borderColor: Theme.colors.border, borderRadius: Theme.radius.md,
+    marginTop: Theme.spacing.xl,
+    padding: Theme.spacing.md,
+    borderWidth: 1,
+    borderColor: Theme.colors.border,
+    borderRadius: Theme.radius.md,
     backgroundColor: Theme.colors.surfaceRaised,
   },
-  summaryEyebrow: { fontSize: 10, fontWeight: '700', color: Theme.colors.textSecondary, letterSpacing: 1.5, textTransform: 'uppercase' },
+  summaryEyebrow: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: Theme.colors.textSecondary,
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+  },
   summaryText: { fontSize: 18, fontWeight: '700', color: Theme.colors.textPrimary, marginTop: 4 },
   docRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: Theme.colors.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Theme.colors.border,
   },
   avatar: {
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: Theme.colors.surfaceRaised, alignItems: 'center', justifyContent: 'center',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Theme.colors.surfaceRaised,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   avatarText: { fontSize: 12, fontWeight: '700', color: Theme.colors.textPrimary },
   docName: { flex: 1, fontSize: 15, color: Theme.colors.textPrimary, fontWeight: '500' },
+  modeRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: Theme.spacing.sm,
+  },
+  modeBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: Theme.radius.md,
+    borderWidth: 1.5,
+    borderColor: Theme.colors.border,
+    backgroundColor: Theme.colors.surface,
+  },
+  modeBtnActive: { backgroundColor: Theme.colors.brand, borderColor: Theme.colors.brand },
+  modeBtnNegative: { backgroundColor: Theme.colors.hardBorder, borderColor: Theme.colors.hardBorder },
+  modeBtnLeave: { backgroundColor: Theme.colors.pagniText, borderColor: Theme.colors.pagniText },
+  modeText: { fontSize: 13, fontWeight: '700', color: Theme.colors.textPrimary },
+  modeTextActive: { color: Theme.colors.textInverse },
+  modeHelp: {
+    fontSize: 12,
+    color: Theme.colors.textSecondary,
+    fontStyle: 'italic',
+    marginBottom: Theme.spacing.sm,
+  },
   bulkRow: { flexDirection: 'row', gap: 8, marginBottom: Theme.spacing.md },
   dayGrid: { marginTop: Theme.spacing.md },
   weekRow: { flexDirection: 'row', marginBottom: 4 },
   weekHead: {
-    flex: 1, fontSize: 10, fontWeight: '700', color: Theme.colors.textSecondary,
-    letterSpacing: 1, textAlign: 'center', textTransform: 'uppercase',
+    flex: 1,
+    fontSize: 10,
+    fontWeight: '700',
+    color: Theme.colors.textSecondary,
+    letterSpacing: 1,
+    textAlign: 'center',
+    textTransform: 'uppercase',
   },
   dayCell: {
-    flex: 1, aspectRatio: 1, borderWidth: 1, borderColor: Theme.colors.border,
-    margin: 2, borderRadius: 6, alignItems: 'center', justifyContent: 'center', position: 'relative',
+    flex: 1,
+    aspectRatio: 1,
+    borderWidth: 1,
+    borderColor: Theme.colors.border,
+    margin: 2,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
   },
   dayNum: { fontSize: 14, fontWeight: '700', color: Theme.colors.textPrimary },
   dayType: { fontSize: 10, fontWeight: '700', marginTop: 2 },
   holidayDot: {
-    position: 'absolute', top: 4, right: 4,
-    width: 6, height: 6, borderRadius: 3, backgroundColor: Theme.colors.softBorder,
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: Theme.colors.softBorder,
   },
+  legendInline: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginTop: Theme.spacing.md,
+    padding: Theme.spacing.sm,
+    backgroundColor: Theme.colors.surface,
+    borderRadius: Theme.radius.sm,
+    borderWidth: 1,
+    borderColor: Theme.colors.border,
+  },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  legendBox: { width: 14, height: 14, borderRadius: 3, borderWidth: 1 },
+  legendText: { fontSize: 11, color: Theme.colors.textSecondary, fontWeight: '500' },
   footer: {
-    position: 'absolute', bottom: 0, left: 0, right: 0,
-    backgroundColor: Theme.colors.surface, padding: Theme.spacing.md,
-    borderTopWidth: 1, borderTopColor: Theme.colors.border,
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: Theme.colors.surface,
+    padding: Theme.spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: Theme.colors.border,
   },
   btn: {
-    flexDirection: 'row', paddingVertical: 14, borderRadius: Theme.radius.md,
-    alignItems: 'center', justifyContent: 'center', gap: 8,
+    flexDirection: 'row',
+    paddingVertical: 14,
+    borderRadius: Theme.radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
   },
   btnGhost: { borderWidth: 1, borderColor: Theme.colors.border },
   btnGhostText: { color: Theme.colors.textPrimary, fontWeight: '600', fontSize: 13 },

@@ -89,6 +89,7 @@ class ScheduleCreate(BaseModel):
 class DayDef(BaseModel):
     date: str  # ISO YYYY-MM-DD
     type: str  # 'open' | 'closed' | 'none'
+    is_custom_holiday: bool = False
 
 
 class DoctorConstraint(BaseModel):
@@ -299,7 +300,7 @@ async def update_schedule(schedule_id: str, data: ScheduleUpdate, current: dict 
             {
                 **d.dict(),
                 "is_weekend": date_cls.fromisoformat(d.date).weekday() >= 5,
-                "is_holiday": is_holiday(date_cls.fromisoformat(d.date)),
+                "is_holiday": is_holiday(date_cls.fromisoformat(d.date)) or d.is_custom_holiday,
             }
             for d in data.day_definitions
         ]
@@ -393,7 +394,13 @@ async def validate(schedule_id: str, payload: dict = None, current: dict = Depen
     doctors_payload = _build_doctor_payload(s, all_doctors)
     res = validate_assignment(
         schedule_dates=[
-            {"date": e["date"], "type": e.get("type", "open"), "doctors": e.get("doctors", [])}
+            {
+                "date": e["date"],
+                "type": e.get("type", "open"),
+                "doctors": e.get("doctors", []),
+                "is_weekend": next((d.get("is_weekend", False) for d in s["day_definitions"] if d["date"] == e["date"]), False),
+                "is_holiday": next((d.get("is_holiday", False) for d in s["day_definitions"] if d["date"] == e["date"]), False),
+            }
             for e in shifts
         ],
         doctors=doctors_payload,

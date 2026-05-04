@@ -11,8 +11,6 @@ from datetime import date, timedelta
 from typing import Optional
 import random
 
-from holidays_gr import is_special_day
-
 
 def _doctor_unavailable(doctor: dict, d: date) -> bool:
     if d.isoformat() in doctor.get("negative_days", []):
@@ -48,6 +46,8 @@ def validate_assignment(
     for entry in schedule_dates:
         d_iso = entry["date"]
         d = date.fromisoformat(d_iso)
+        is_we = entry.get("is_weekend", d.weekday() >= 5)
+        is_hol = entry.get("is_holiday", False)
         per_day[d_iso] = {"hard": [], "soft": []}
         required = 2 if entry["type"] == "open" else 1
         actual_doctors = entry.get("doctors", [])
@@ -64,10 +64,9 @@ def validate_assignment(
             doc = doc_map[did]
             doc_dates[did].append(d)
             per_doctor_stats[did]["shifts"] += 1
-            if is_special_day(d):
+            if is_we or is_hol:
                 per_doctor_stats[did]["weekends"] += 1
-            from holidays_gr import is_holiday
-            if is_holiday(d):
+            if is_hol:
                 per_doctor_stats[did]["holidays"] += 1
 
             # HC-3, HC-4
@@ -149,13 +148,20 @@ def generate_schedule(
         result = _attempt_one(days_sorted, doctors, target_per_doctor)
         if result is None:
             continue
+        # Carry over is_weekend/is_holiday flags from input day_definitions
+        flag_map = {d["date"]: (d.get("is_weekend", False), d.get("is_holiday", False)) for d in days_sorted}
+        for entry in result:
+            iw, ih = flag_map.get(entry["date"], (False, False))
+            entry["is_weekend"] = iw
+            entry["is_holiday"] = ih
         # Score it (lower is better): sum of squared deviation from target + weekend imbalance
         stats = {d["id"]: {"shifts": 0, "weekends": 0, "holidays": 0} for d in doctors}
         for entry in result:
-            dt = date.fromisoformat(entry["date"])
+            is_we = entry.get("is_weekend", False)
+            is_hol = entry.get("is_holiday", False)
             for did in entry["doctors"]:
                 stats[did]["shifts"] += 1
-                if is_special_day(dt):
+                if is_we or is_hol:
                     stats[did]["weekends"] += 1
         score = 0.0
         for did, s in stats.items():

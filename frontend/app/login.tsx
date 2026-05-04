@@ -54,7 +54,7 @@ export default function Login() {
           </View>
 
           <View style={styles.card}>
-            <Text style={styles.h2}>Σύνδεση Διευθυντή</Text>
+            <Text style={styles.h2}>Σύνδεση Χρήστη</Text>
             <Text style={styles.label}>Email</Text>
             <TextInput
               testID="login-email-input"
