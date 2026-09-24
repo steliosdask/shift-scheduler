@@ -62,30 +62,20 @@ def build_schedule_pdf(
         d["date"] for d in day_definitions if d.get("is_holiday") or d.get("is_custom_holiday")
     }
 
-    # Build calendar grid: rows of weeks, columns Sun..Sat
-    n_days = monthrange(year, month)[1]
-    first_day = date(year, month, 1)
-    # In python weekday(): Mon=0..Sun=6. We want Sun=0..Sat=6
+    # Calendar grid: one row per week, columns Sunday..Saturday
     def week_col(d: date) -> int:
         return (d.weekday() + 1) % 7
 
-    leading = week_col(first_day)
     weeks: list[list] = [[None] * 7]
-    for d_num in range(1, n_days + 1):
+    for d_num in range(1, monthrange(year, month)[1] + 1):
         d = date(year, month, d_num)
         col = week_col(d)
         if col == 0 and d_num != 1:
             weeks.append([None] * 7)
         weeks[-1][col] = d
-    # pad first week
-    if leading > 0:
-        weeks[0] = [None] * leading + weeks[0][leading:]
 
-    # Header row: Greek day names
-    header = GREEK_DAY_NAMES[:]
-    table_data = [header]
-
-    cell_styles = []  # collect (row, col, color)
+    table_data = [GREEK_DAY_NAMES[:]]
+    cell_styles = []
 
     weekend_red = colors.HexColor("#FEE2E2")
     holiday_yellow = colors.HexColor("#FEF3C7")
@@ -103,9 +93,9 @@ def build_schedule_pdf(
             doc_names = "\n".join(doc_map.get(i, "?") for i in doctors_ids)
             label_type = ""
             if t == "open":
-                label_type = "Α"  # Ανοιχτή - ΠΑΓΝΗ
+                label_type = "Α"
             elif t == "closed":
-                label_type = "Κ"  # Κλειστή - ΒΕΝΙΖΕΛΕΙΟ
+                label_type = "Κ"
             is_hol = is_holiday(d) or iso in holiday_dates
             hname = holiday_name(d) or ("Αργία" if is_hol else None)
             top_line = f"{d.day}"
@@ -118,7 +108,6 @@ def build_schedule_pdf(
                 cell_text += f"\n{doc_names}"
             row.append(cell_text)
 
-            # Determine bg color
             if is_hol:
                 cell_styles.append(("BACKGROUND", (c_idx, w_idx), (c_idx, w_idx), holiday_yellow))
             elif d.weekday() >= 5:

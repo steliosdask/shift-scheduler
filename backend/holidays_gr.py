@@ -1,7 +1,6 @@
-"""Greek Orthodox Easter and holiday calculations for years 2024-2030."""
+"""Greek public holidays. Movable holidays are only known for 2024-2030."""
 from datetime import date, timedelta
 
-# Orthodox Easter Sundays (Julian -> Gregorian) for 2024-2030
 ORTHODOX_EASTER = {
     2024: date(2024, 5, 5),
     2025: date(2025, 4, 20),
@@ -12,7 +11,6 @@ ORTHODOX_EASTER = {
     2030: date(2030, 4, 28),
 }
 
-# Fixed Greek public holidays (paid double for shifts)
 FIXED_HOLIDAYS = [
     (1, 1, "Πρωτοχρονιά"),
     (1, 6, "Θεοφάνια"),
@@ -25,23 +23,14 @@ FIXED_HOLIDAYS = [
 ]
 
 
-def get_holidays(year: int) -> dict:
-    """Return mapping of date -> holiday name for the given year."""
-    holidays: dict[date, str] = {}
-    for m, d, name in FIXED_HOLIDAYS:
-        holidays[date(year, m, d)] = name
-
+def get_holidays(year: int) -> dict[date, str]:
+    holidays = {date(year, m, d): name for m, d, name in FIXED_HOLIDAYS}
     easter = ORTHODOX_EASTER.get(year)
     if easter:
-        # Καθαρά Δευτέρα: 48 days before Easter Sunday
         holidays[easter - timedelta(days=48)] = "Καθαρά Δευτέρα"
-        # Μεγάλη Παρασκευή
         holidays[easter - timedelta(days=2)] = "Μεγάλη Παρασκευή"
-        # Κυριακή του Πάσχα
         holidays[easter] = "Κυριακή του Πάσχα"
-        # Δευτέρα του Πάσχα
         holidays[easter + timedelta(days=1)] = "Δευτέρα του Πάσχα"
-        # Αγίου Πνεύματος (50 days after Easter)
         holidays[easter + timedelta(days=50)] = "Αγίου Πνεύματος"
     return holidays
 
@@ -52,8 +41,3 @@ def is_holiday(d: date) -> bool:
 
 def holiday_name(d: date) -> str | None:
     return get_holidays(d.year).get(d)
-
-
-def is_special_day(d: date) -> bool:
-    """Saturday, Sunday, or Greek holiday (Σ/Κ + Αργίες)."""
-    return d.weekday() >= 5 or is_holiday(d)

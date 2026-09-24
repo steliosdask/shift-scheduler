@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -15,7 +15,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { Theme, GREEK_MONTHS } from '../../constants/Theme';
 import { api, formatApiError } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import { confirmAction } from '@/lib/confirm';
+import { confirmAction } from '../../lib/confirm';
 
 type Schedule = {
   id: string;
@@ -67,23 +67,6 @@ export default function Dashboard() {
       Alert.alert('Σφάλμα', formatApiError(e));
     }
   };
-  // const onDelete = (id: string) => {
-  //   Alert.alert('Διαγραφή Προγράμματος', 'Σίγουρα θέλετε να διαγράψετε αυτό το πρόγραμμα;', [
-  //     { text: 'Άκυρο', style: 'cancel' },
-  //     {
-  //       text: 'Διαγραφή',
-  //       style: 'destructive',
-  //       onPress: async () => {
-  //         try {
-  //           await api.delete(`/schedules/${id}`);
-  //           load();
-  //         } catch (e) {
-  //           Alert.alert('Σφάλμα', formatApiError(e));
-  //         }
-  //       },
-  //     },
-  //   ]);
-  // };
 
   if (loading) {
     return (
@@ -100,7 +83,7 @@ export default function Dashboard() {
           <Text style={styles.eyebrow}>Καλώς ήρθατε</Text>
           <Text style={styles.title}>{user?.username}</Text>
         </View>
-        <TouchableOpacity testID="logout-btn" onPress={logout} style={styles.iconBtn}>
+        <TouchableOpacity onPress={logout} style={styles.iconBtn}>
           <Ionicons name="log-out-outline" size={22} color={Theme.colors.textPrimary} />
         </TouchableOpacity>
       </View>
@@ -111,7 +94,6 @@ export default function Dashboard() {
           <Text style={styles.statLabel}>Προγράμματα</Text>
         </View>
         <TouchableOpacity
-          testID="manage-doctors-btn"
           style={styles.statCard}
           onPress={() => router.push('/(app)/doctors')}
           activeOpacity={0.7}
@@ -125,7 +107,6 @@ export default function Dashboard() {
       </View>
 
       <TouchableOpacity
-        testID="new-schedule-btn"
         style={styles.cta}
         onPress={() => router.push('/(app)/wizard')}
         activeOpacity={0.85}
@@ -152,7 +133,6 @@ export default function Dashboard() {
         }
         renderItem={({ item }) => (
           <TouchableOpacity
-            testID={`schedule-row-${item.year}-${item.month}`}
             style={styles.row}
             onPress={() => router.push(`/(app)/schedule/${item.id}`)}
             activeOpacity={0.7}
@@ -187,7 +167,6 @@ export default function Dashboard() {
               </View>
             </View>
             <TouchableOpacity
-              testID={`schedule-delete-${item.id}`}
               hitSlop={10}
               onPress={() => onDelete(item.id)}
               style={{ padding: 6 }}

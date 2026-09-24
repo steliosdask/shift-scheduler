@@ -18,6 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Theme } from '../../constants/Theme';
 import { api, formatApiError } from '../../lib/api';
+import { confirmAction } from '../../lib/confirm';
 
 type Doctor = {
   id: string;
@@ -88,22 +89,18 @@ export default function DoctorsScreen() {
     }
   };
 
-  const onDelete = (d: Doctor) => {
-    Alert.alert('Διαγραφή Γιατρού', `Διαγραφή του/της "${d.full_name}";`, [
-      { text: 'Άκυρο', style: 'cancel' },
-      {
-        text: 'Διαγραφή',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await api.delete(`/doctors/${d.id}`);
-            load();
-          } catch (e) {
-            Alert.alert('Σφάλμα', formatApiError(e));
-          }
-        },
-      },
-    ]);
+  const onDelete = async (d: Doctor) => {
+    const ok = await confirmAction('Διαγραφή Γιατρού', `Διαγραφή του/της "${d.full_name}";`, {
+      confirmText: 'Διαγραφή',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await api.delete(`/doctors/${d.id}`);
+      load();
+    } catch (e) {
+      Alert.alert('Σφάλμα', formatApiError(e));
+    }
   };
 
   if (loading) {
@@ -117,11 +114,11 @@ export default function DoctorsScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.header}>
-        <TouchableOpacity testID="back-btn" onPress={() => router.back()} style={styles.iconBtn}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
           <Ionicons name="chevron-back" size={22} color={Theme.colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Διαχείριση Γιατρών</Text>
-        <TouchableOpacity testID="add-doctor-btn" onPress={openAdd} style={[styles.iconBtn, styles.iconBtnPrimary]}>
+        <TouchableOpacity onPress={openAdd} style={[styles.iconBtn, styles.iconBtnPrimary]}>
           <Ionicons name="add" size={22} color={Theme.colors.textInverse} />
         </TouchableOpacity>
       </View>
@@ -137,7 +134,7 @@ export default function DoctorsScreen() {
           </View>
         }
         renderItem={({ item }) => (
-          <View style={styles.row} testID={`doctor-row-${item.id}`}>
+          <View style={styles.row}>
             <View style={[styles.avatar, !item.is_active && { opacity: 0.4 }]}>
               <Text style={styles.avatarText}>
                 {item.full_name.split(' ').map((p) => p[0]).slice(0, 2).join('')}
@@ -157,7 +154,6 @@ export default function DoctorsScreen() {
               </View>
             </View>
             <TouchableOpacity
-              testID={`doctor-edit-${item.id}`}
               onPress={() => openEdit(item)}
               style={styles.smallBtn}
               hitSlop={8}
@@ -165,7 +161,6 @@ export default function DoctorsScreen() {
               <Ionicons name="create-outline" size={18} color={Theme.colors.textPrimary} />
             </TouchableOpacity>
             <TouchableOpacity
-              testID={`doctor-delete-${item.id}`}
               onPress={() => onDelete(item)}
               style={styles.smallBtn}
               hitSlop={8}
@@ -182,12 +177,11 @@ export default function DoctorsScreen() {
           style={styles.modalRoot}
         >
           <TouchableOpacity activeOpacity={1} style={styles.modalBackdrop} onPress={() => setModalOpen(false)} />
-          <View style={styles.modalSheet} testID="doctor-form-modal">
+          <View style={styles.modalSheet}>
             <View style={styles.modalHandle} />
             <Text style={styles.modalTitle}>{editing ? 'Επεξεργασία Γιατρού' : 'Νέος Γιατρός'}</Text>
             <Text style={styles.label}>Ονοματεπώνυμο</Text>
             <TextInput
-              testID="doctor-name-input"
               style={styles.input}
               value={name}
               onChangeText={setName}
@@ -196,7 +190,6 @@ export default function DoctorsScreen() {
             />
             <Text style={styles.label}>Σημειώσεις (προαιρετικό)</Text>
             <TextInput
-              testID="doctor-notes-input"
               style={[styles.input, { minHeight: 60 }]}
               value={notes}
               onChangeText={setNotes}
@@ -207,7 +200,6 @@ export default function DoctorsScreen() {
             <View style={styles.toggleRow}>
               <Text style={styles.toggleLabel}>Ενεργός</Text>
               <Switch
-                testID="doctor-active-toggle"
                 value={active}
                 onValueChange={setActive}
                 trackColor={{ false: Theme.colors.border, true: Theme.colors.brand }}
@@ -222,7 +214,6 @@ export default function DoctorsScreen() {
                 <Text style={styles.btnGhostText}>Άκυρο</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                testID="doctor-save-btn"
                 style={[styles.btn, styles.btnPrimary, saving && { opacity: 0.6 }]}
                 onPress={onSave}
                 disabled={saving}

@@ -14,7 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Theme, GREEK_MONTHS, GREEK_DAYS_SHORT } from '../../../constants/Theme';
+import { Theme, GREEK_MONTHS, GREEK_DAYS_SHORT, GREEK_DAYS_LONG } from '../../../constants/Theme';
 import { api, formatApiError, getAuthToken } from '../../../lib/api';
 
 type Schedule = {
@@ -43,7 +43,6 @@ export default function ScheduleEdit() {
   const [holidays, setHolidays] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [validating, setValidating] = useState(false);
   const [validation, setValidation] = useState<Validation | null>(null);
   const [editDay, setEditDay] = useState<string | null>(null);
   const [showSummary, setShowSummary] = useState(false);
@@ -72,14 +71,11 @@ export default function ScheduleEdit() {
   const runValidation = async (shifts: any[], sch?: Schedule) => {
     const sid = sch?.id || schedule?.id;
     if (!sid) return;
-    setValidating(true);
     try {
       const r = await api.post(`/schedules/${sid}/validate`, { shifts });
       setValidation(r.data);
-    } catch (e) {
-      // ignore
-    } finally {
-      setValidating(false);
+    } catch {
+      // Validation is informational; the schedule stays usable without it.
     }
   };
 
@@ -97,13 +93,11 @@ export default function ScheduleEdit() {
     }
     let newDoctors = [...entry.doctors];
     if (doctorId === null) {
-      // clear all
       newDoctors = [];
     } else if (newDoctors.includes(doctorId)) {
       newDoctors = newDoctors.filter((d) => d !== doctorId);
     } else {
       if (newDoctors.length >= required) {
-        // replace last one
         newDoctors = [...newDoctors.slice(0, required - 1), doctorId];
       } else {
         newDoctors.push(doctorId);
@@ -172,7 +166,6 @@ export default function ScheduleEdit() {
   const dayDefMap = Object.fromEntries(schedule.day_definitions.map((d) => [d.date, d]));
   const shiftMap = Object.fromEntries((schedule.shifts || []).map((s) => [s.date, s]));
 
-  // Build calendar weeks
   const first = new Date(schedule.year, schedule.month - 1, 1);
   const leading = first.getDay();
   const cells: (string | null)[] = [];
@@ -188,7 +181,7 @@ export default function ScheduleEdit() {
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.header}>
-        <TouchableOpacity testID="schedule-back-btn" onPress={() => router.back()} style={styles.iconBtn}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
           <Ionicons name="chevron-back" size={22} color={Theme.colors.textPrimary} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
@@ -197,19 +190,17 @@ export default function ScheduleEdit() {
             {schedule.status === 'finalized' ? 'Οριστικοποιημένο' : 'Πρόχειρο'} · {schedule.shifts.length} ημέρες
           </Text>
         </View>
-        <TouchableOpacity testID="summary-btn" onPress={() => setShowSummary(true)} style={styles.iconBtn}>
+        <TouchableOpacity onPress={() => setShowSummary(true)} style={styles.iconBtn}>
           <Ionicons name="stats-chart-outline" size={20} color={Theme.colors.textPrimary} />
         </TouchableOpacity>
       </View>
 
-      {/* Status banner */}
       {(totalHard > 0 || totalSoft > 0) && (
         <View
           style={[
             styles.banner,
             totalHard > 0 ? styles.bannerHard : styles.bannerSoft,
           ]}
-          testID="violations-banner"
         >
           <Ionicons
             name={totalHard > 0 ? 'close-circle' : 'warning'}
@@ -273,7 +264,6 @@ export default function ScheduleEdit() {
               return (
                 <TouchableOpacity
                   key={cIdx}
-                  testID={`day-cell-${dateStr}`}
                   onPress={() => setEditDay(dateStr)}
                   style={[styles.cell, { backgroundColor: cellBg, borderColor }]}
                   activeOpacity={0.7}
@@ -327,11 +317,9 @@ export default function ScheduleEdit() {
         </View>
       </ScrollView>
 
-      {/* Sticky bottom actions */}
       <View style={styles.footer}>
         <View style={styles.footerRow}>
           <TouchableOpacity
-            testID="auto-generate-btn"
             style={[styles.btn, styles.btnGhost, saving && { opacity: 0.6 }]}
             onPress={handleAutoGenerate}
             disabled={saving || schedule.status === 'finalized'}
@@ -340,7 +328,6 @@ export default function ScheduleEdit() {
             <Text style={styles.btnGhostText}>Αυτόματη</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            testID="export-pdf-btn"
             style={[styles.btn, styles.btnGhost]}
             onPress={handleExportPdf}
           >
@@ -350,7 +337,6 @@ export default function ScheduleEdit() {
         </View>
         <View style={styles.footerRow}>
           <TouchableOpacity
-            testID="save-draft-btn"
             style={[styles.btn, styles.btnGhost, saving && { opacity: 0.6 }]}
             onPress={() => handleSave(false)}
             disabled={saving || schedule.status === 'finalized'}
@@ -358,7 +344,6 @@ export default function ScheduleEdit() {
             <Text style={styles.btnGhostText}>Αποθήκευση</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            testID="finalize-btn"
             style={[styles.btn, styles.btnPrimary, saving && { opacity: 0.6 }]}
             onPress={() => handleSave(true)}
             disabled={saving || schedule.status === 'finalized'}
@@ -375,11 +360,10 @@ export default function ScheduleEdit() {
         </View>
       </View>
 
-      {/* Day edit bottom sheet */}
       <Modal visible={!!editDay} transparent animationType="slide" onRequestClose={() => setEditDay(null)}>
         <View style={{ flex: 1, justifyContent: 'flex-end' }}>
           <TouchableOpacity activeOpacity={1} style={styles.modalBackdrop} onPress={() => setEditDay(null)} />
-          <View style={styles.sheet} testID="day-edit-sheet">
+          <View style={styles.sheet}>
             <View style={styles.modalHandle} />
             {editDay && (() => {
               const dd = dayDefMap[editDay];
@@ -387,13 +371,8 @@ export default function ScheduleEdit() {
               const required = dd?.type === 'open' ? 2 : 1;
               const assigned = sh?.doctors || [];
               const dt = new Date(editDay);
-              const dayName = ['Κυριακή', 'Δευτέρα', 'Τρίτη', 'Τετάρτη', 'Πέμπτη', 'Παρασκευή', 'Σάββατο'][dt.getDay()];
+              const dayName = GREEK_DAYS_LONG[dt.getDay()];
               const v = validation?.per_day[editDay];
-              const constraintByDoctor = (() => {
-                const cb: Record<string, string[]> = {};
-                schedule.day_definitions.forEach((d) => {});
-                return cb;
-              })();
               return (
                 <>
                   <Text style={styles.sheetTitle}>
@@ -404,7 +383,7 @@ export default function ScheduleEdit() {
                     {holidays[editDay] ? ` · ${holidays[editDay]}` : dd?.is_holiday ? ' · Αργία' : ''}
                   </Text>
                   {v?.hard.length ? (
-                    <View style={[styles.alert, styles.alertHard]} testID="day-violations">
+                    <View style={[styles.alert, styles.alertHard]}>
                       {v.hard.map((h: any, idx: number) => (
                         <Text key={idx} style={styles.alertHardText}>• {h.msg}</Text>
                       ))}
@@ -423,7 +402,6 @@ export default function ScheduleEdit() {
                       return (
                         <TouchableOpacity
                           key={doc.id}
-                          testID={`assign-doctor-${doc.id}`}
                           onPress={() => handleAssignDoctor(editDay, doc.id)}
                           style={[styles.docOption, isAssigned && styles.docOptionActive]}
                           activeOpacity={0.7}
@@ -438,14 +416,12 @@ export default function ScheduleEdit() {
                   </ScrollView>
                   <View style={styles.sheetActions}>
                     <TouchableOpacity
-                      testID="clear-day-btn"
                       style={[styles.btn, styles.btnGhost, { flex: 1 }]}
                       onPress={() => handleAssignDoctor(editDay, null)}
                     >
                       <Text style={styles.btnGhostText}>Καθαρισμός</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      testID="close-sheet-btn"
                       style={[styles.btn, styles.btnPrimary, { flex: 1 }]}
                       onPress={() => setEditDay(null)}
                     >
@@ -459,11 +435,10 @@ export default function ScheduleEdit() {
         </View>
       </Modal>
 
-      {/* Summary modal */}
       <Modal visible={showSummary} transparent animationType="slide" onRequestClose={() => setShowSummary(false)}>
         <View style={{ flex: 1, justifyContent: 'flex-end' }}>
           <TouchableOpacity activeOpacity={1} style={styles.modalBackdrop} onPress={() => setShowSummary(false)} />
-          <View style={styles.sheet} testID="summary-sheet">
+          <View style={styles.sheet}>
             <View style={styles.modalHandle} />
             <Text style={styles.sheetTitle}>Σύνοψη Εφημεριών</Text>
             <Text style={styles.sheetSub}>{GREEK_MONTHS[schedule.month]} {schedule.year}</Text>

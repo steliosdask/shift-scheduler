@@ -1,17 +1,6 @@
 import { Alert, Platform } from 'react-native';
 
-/**
- * Cross-platform confirmation dialog.
- * - On web: uses native window.confirm (Alert.alert ignores buttons on web)
- * - On native (iOS/Android): uses Alert.alert with proper button callbacks
- *
- * Returns a Promise<boolean>: true if the user confirmed, false otherwise.
- *
- * Usage:
- *   const ok = await confirmAction('Διαγραφή', 'Σίγουρα;');
- *   if (!ok) return;
- *   await api.delete(...);
- */
+/** Confirmation dialog that also works on web, where Alert.alert ignores buttons. */
 export function confirmAction(
   title: string,
   message: string,
@@ -28,7 +17,6 @@ export function confirmAction(
   } = options;
 
   if (Platform.OS === 'web') {
-    // window.confirm shows title + message in a single string; we join them.
     const text = message ? `${title}\n\n${message}` : title;
     return Promise.resolve(window.confirm(text));
   }

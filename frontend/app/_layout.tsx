@@ -19,7 +19,7 @@ export default function RootLayout() {
       try {
         await Font.loadAsync(Ionicons.font);
       } catch {
-        // Continue even if font fails — UI will fallback to text
+        // Icons fall back to text if the font fails to load
       }
       setReady(true);
       SplashScreen.hideAsync().catch(() => {});

@@ -1,40 +1,38 @@
-"""Schedule auto-generation με backtracking + heuristics.
+"""Monthly on-call schedule generation and validation.
 
-Βελτιωμένη έκδοση:
-  - Pre-search feasibility check (γρήγορη απόρριψη ανέφικτων σεναρίων)
-  - Time-budgeted backtracking με wall-clock deadline
-  - True MRV variable ordering (re-evaluated σε κάθε βήμα)
-  - Forward checking (constraint propagation στις γειτονικές μέρες)
-  - Greedy partial fallback όταν δεν βρεθεί πλήρης λύση
+Rules:
+  - An open day needs 2 doctors, a closed day needs 1.
+  - A doctor needs at least 3 free days between two shifts.
+  - Negative days and leaves are respected.
+  - Weekends/holidays should be spread evenly.
 
-Hard constraints:
-  HC-1: Open shift = 2 γιατροί, Closed shift = 1 γιατρός
-  HC-2: Ελάχιστο κενό 3 ημερών μεταξύ εφημεριών ίδιου γιατρού (gap >= 4)
-  HC-3: Σεβασμός αρνητικών ημερών
-  HC-4: Σεβασμός αδειών
-  HC-5: Δίκαιη κατανομή Σ/Κ + αργιών
+Generation runs a quick feasibility check, then a time-limited backtracking
+search (most-constrained slot first, with forward checking). If no complete
+solution is found in time, a greedy partial schedule is returned instead.
 """
-from datetime import date, timedelta
-from typing import Optional
 import random
 import time
+from datetime import date
+from typing import Optional
+
+MIN_GAP_DAYS = 4  # 3 free days between shifts
 
 
-# ---------- Helpers ----------
+def required_doctors(day_type: str) -> int:
+    return 2 if day_type == "open" else 1
 
-def _doctor_unavailable(doctor: dict, d: date) -> bool:
-    """True αν ο γιατρός έχει αρνητική μέρα ή είναι σε άδεια εκείνη την ημερομηνία."""
+
+def doctor_unavailable(doctor: dict, d: date) -> bool:
+    """True if the doctor marked the day as negative or is on leave."""
     if d.isoformat() in doctor.get("negative_days", []):
         return True
     for lv in doctor.get("leaves", []):
-        s = date.fromisoformat(lv["start_date"])
-        e = date.fromisoformat(lv["end_date"])
-        if s <= d <= e:
+        if date.fromisoformat(lv["start_date"]) <= d <= date.fromisoformat(lv["end_date"]):
             return True
     return False
 
 
-# ---------- Validation (η public API παραμένει η ίδια) ----------
+# ---------- Validation ----------
 
 def validate_assignment(
     schedule_dates: list[dict],
@@ -42,7 +40,6 @@ def validate_assignment(
     target_per_doctor: int = 6,
     negative_day_limit: int = 5,
 ) -> dict:
-    """Run all constraint checks. (Αμετάβλητο από την προηγούμενη έκδοση.)"""
     hard = []
     soft = []
     per_day: dict = {}
@@ -53,21 +50,26 @@ def validate_assignment(
     doc_map = {d["id"]: d for d in doctors}
     doc_dates: dict[str, list[date]] = {d["id"]: [] for d in doctors}
 
+    def add_hard(d_iso: str, issue: dict):
+        per_day[d_iso]["hard"].append(issue)
+        hard.append({"date": d_iso, **issue})
+
     for entry in schedule_dates:
         d_iso = entry["date"]
         d = date.fromisoformat(d_iso)
         is_we = entry.get("is_weekend", d.weekday() >= 5)
         is_hol = entry.get("is_holiday", False)
         per_day[d_iso] = {"hard": [], "soft": []}
-        required = 2 if entry["type"] == "open" else 1
-        actual_doctors = entry.get("doctors", [])
+        required = required_doctors(entry["type"])
+        assigned = entry.get("doctors", [])
 
-        if len(actual_doctors) != required:
-            msg = f"Λάθος αριθμός γιατρών: απαιτούνται {required}, βρέθηκαν {len(actual_doctors)}"
-            per_day[d_iso]["hard"].append({"code": "HC1", "msg": msg})
-            hard.append({"date": d_iso, "code": "HC1", "msg": msg})
+        if len(assigned) != required:
+            add_hard(d_iso, {
+                "code": "HC1",
+                "msg": f"Λάθος αριθμός γιατρών: απαιτούνται {required}, βρέθηκαν {len(assigned)}",
+            })
 
-        for did in actual_doctors:
+        for did in assigned:
             if did not in doc_map:
                 continue
             doc = doc_map[did]
@@ -77,29 +79,26 @@ def validate_assignment(
                 per_doctor_stats[did]["weekends"] += 1
             if is_hol:
                 per_doctor_stats[did]["holidays"] += 1
+            if doctor_unavailable(doc, d):
+                add_hard(d_iso, {
+                    "code": "HC34",
+                    "msg": f"Ο/Η {doc['full_name']} δεν είναι διαθέσιμος/η ({d_iso})",
+                    "doctor_id": did,
+                })
 
-            if _doctor_unavailable(doc, d):
-                msg = f"Ο/Η {doc['full_name']} δεν είναι διαθέσιμος/η ({d_iso})"
-                per_day[d_iso]["hard"].append({"code": "HC34", "msg": msg, "doctor_id": did})
-                hard.append({"date": d_iso, "code": "HC34", "msg": msg, "doctor_id": did})
+        if len(set(assigned)) != len(assigned):
+            add_hard(d_iso, {"code": "DUP", "msg": "Ο ίδιος γιατρός εμφανίζεται δύο φορές την ίδια ημέρα"})
 
-        if len(set(actual_doctors)) != len(actual_doctors):
-            msg = "Ο ίδιος γιατρός εμφανίζεται δύο φορές την ίδια ημέρα"
-            per_day[d_iso]["hard"].append({"code": "DUP", "msg": msg})
-            hard.append({"date": d_iso, "code": "DUP", "msg": msg})
-
-    for did, dates_list in doc_dates.items():
-        dates_list_sorted = sorted(dates_list)
-        for i in range(1, len(dates_list_sorted)):
-            gap = (dates_list_sorted[i] - dates_list_sorted[i - 1]).days
-            if gap < 4:
-                msg = f"Ο/Η {doc_map[did]['full_name']}: παρήμερα ({dates_list_sorted[i-1]} και {dates_list_sorted[i]}, διαφορά {gap} ημέρες)"
-                per_day[dates_list_sorted[i].isoformat()]["hard"].append(
-                    {"code": "HC2", "msg": msg, "doctor_id": did}
-                )
-                hard.append(
-                    {"date": dates_list_sorted[i].isoformat(), "code": "HC2", "msg": msg, "doctor_id": did}
-                )
+    for did, dates in doc_dates.items():
+        dates = sorted(dates)
+        for prev, cur in zip(dates, dates[1:]):
+            gap = (cur - prev).days
+            if gap < MIN_GAP_DAYS:
+                add_hard(cur.isoformat(), {
+                    "code": "HC2",
+                    "msg": f"Ο/Η {doc_map[did]['full_name']}: παρήμερα ({prev} και {cur}, διαφορά {gap} ημέρες)",
+                    "doctor_id": did,
+                })
 
     weekend_counts = [s["weekends"] for s in per_doctor_stats.values()]
     if weekend_counts and max(weekend_counts) - min(weekend_counts) > 1:
@@ -126,20 +125,16 @@ def validate_assignment(
     }
 
 
-# ---------- Feasibility check (γρήγορος έλεγχος πριν την αναζήτηση) ----------
+# ---------- Generation ----------
 
-def _feasibility_check(
-    days_sorted: list[dict],
-    doctors: list[dict],
-) -> tuple[bool, list[str]]:
-    """Quick checks πριν το backtracking. Επιστρέφει (ok, list_of_issues)."""
+def feasibility_check(days_sorted: list[dict], doctors: list[dict]) -> tuple[bool, list[str]]:
+    """Cheap checks that rule out impossible months before searching."""
     issues: list[str] = []
 
-    # Έλεγχος 1: κάθε μέρα έχει αρκετούς διαθέσιμους γιατρούς
     for dd in days_sorted:
         d = date.fromisoformat(dd["date"])
-        required = 2 if dd["type"] == "open" else 1
-        available = [doc for doc in doctors if not _doctor_unavailable(doc, d)]
+        required = required_doctors(dd["type"])
+        available = [doc for doc in doctors if not doctor_unavailable(doc, d)]
         if len(available) < required:
             issues.append(
                 f"Η ημερομηνία {dd['date']} χρειάζεται {required} γιατρ"
@@ -147,17 +142,13 @@ def _feasibility_check(
                 f"είναι διαθέσιμοι (μη αρνητικοί/μη σε άδεια)."
             )
 
-    # Έλεγχος 2: συνολικό capacity vs total demand
-    total_demand = sum(2 if d["type"] == "open" else 1 for d in days_sorted)
-    n_days = len(days_sorted)
-    # Max shifts ανά γιατρό λόγω 3-day gap: ceil(n_days / 4)
-    max_per_doctor = (n_days + 3) // 4
-    # Adjust για αρνητικές: αν ο γιατρός έχει πολλές αρνητικές, λιγότερες διαθέσιμες
+    total_demand = sum(required_doctors(d["type"]) for d in days_sorted)
+    # Because of the minimum gap, one doctor can cover at most every 4th day.
+    max_per_doctor = (len(days_sorted) + MIN_GAP_DAYS - 1) // MIN_GAP_DAYS
     total_capacity = 0
     for doc in doctors:
         available_days = sum(
-            1 for dd in days_sorted
-            if not _doctor_unavailable(doc, date.fromisoformat(dd["date"]))
+            1 for dd in days_sorted if not doctor_unavailable(doc, date.fromisoformat(dd["date"]))
         )
         total_capacity += min(max_per_doctor, available_days)
 
@@ -168,31 +159,16 @@ def _feasibility_check(
             f"αρνητικών δηλώσεων). Διαφορά: {total_demand - total_capacity}."
         )
 
-    return (len(issues) == 0, issues)
+    return len(issues) == 0, issues
 
-
-# ---------- Κύρια συνάρτηση παραγωγής ----------
 
 def generate_schedule(
-    year: int,
-    month: int,
     day_definitions: list[dict],
     doctors: list[dict],
     target_per_doctor: Optional[int] = None,
     time_budget_seconds: float = 15.0,
 ) -> dict:
-    """
-    Παράγει πρόγραμμα εντός χρονικού ορίου.
-
-    Επιστρέφει dict:
-      {
-        "schedule": list[dict] | None,
-        "infeasible": bool,
-        "partial": bool,
-        "reason": str | None,
-        "suggestions": list[str],
-      }
-    """
+    """Returns {"schedule", "infeasible", "partial", "reason", "suggestions"}."""
     if not doctors:
         return {
             "schedule": None,
@@ -208,19 +184,15 @@ def generate_schedule(
         for d in days_sorted
     }
 
-    def _attach_flags(result):
+    def attach_flags(result):
         for entry in result:
-            iw, ih = flag_map.get(entry["date"], (False, False))
-            entry["is_weekend"] = iw
-            entry["is_holiday"] = ih
+            entry["is_weekend"], entry["is_holiday"] = flag_map.get(entry["date"], (False, False))
         return result
 
-    # Στάδιο 1: feasibility check
-    feasible, issues = _feasibility_check(days_sorted, doctors)
+    feasible, issues = feasibility_check(days_sorted, doctors)
     if not feasible:
-        partial = _greedy_partial(days_sorted, doctors)
         return {
-            "schedule": _attach_flags(partial),
+            "schedule": attach_flags(greedy_partial(days_sorted, doctors)),
             "infeasible": True,
             "partial": True,
             "reason": "Το σενάριο δεν είναι μαθηματικά εφικτό με τους τρέχοντες περιορισμούς.",
@@ -229,30 +201,28 @@ def generate_schedule(
             ],
         }
 
-    # Στάδιο 2: backtracking με time budget
-    total_slots = sum(2 if d["type"] == "open" else 1 for d in days_sorted)
+    total_slots = sum(required_doctors(d["type"]) for d in days_sorted)
     if target_per_doctor is None:
         target_per_doctor = max(1, round(total_slots / len(doctors)))
 
+    # Try several randomized searches within the time budget and keep the best one.
     deadline = time.monotonic() + time_budget_seconds
     best_solution = None
     best_score = float("inf")
     attempt = 0
-
-    # Πολλαπλά γρήγορα tries, όλα μέσα στο time budget
     while time.monotonic() < deadline:
         random.seed(attempt)
         attempt += 1
-        result = _attempt_one_smart(days_sorted, doctors, deadline)
+        result = backtracking_search(days_sorted, doctors, deadline)
         if result is None:
             continue
-        _attach_flags(result)
-        score = _score_solution(result, target_per_doctor, doctors)
+        attach_flags(result)
+        score = score_solution(result, target_per_doctor, doctors)
         if score < best_score:
             best_score = score
             best_solution = result
             if score < 1.0:
-                break  # near-optimal, σταματάμε νωρίς
+                break
 
     if best_solution is not None:
         return {
@@ -263,9 +233,8 @@ def generate_schedule(
             "suggestions": [],
         }
 
-    # Στάδιο 3: fallback — greedy partial
-    partial = _attach_flags(_greedy_partial(days_sorted, doctors))
-    unfilled = [e["date"] for e in partial if len(e["doctors"]) < (2 if e["type"] == "open" else 1)]
+    partial = attach_flags(greedy_partial(days_sorted, doctors))
+    unfilled = [e["date"] for e in partial if len(e["doctors"]) < required_doctors(e["type"])]
     return {
         "schedule": partial,
         "infeasible": False,
@@ -282,182 +251,120 @@ def generate_schedule(
     }
 
 
-# ---------- Scoring (για διαλογή μεταξύ feasible λύσεων) ----------
-
-def _score_solution(result: list[dict], target: int, doctors: list[dict]) -> float:
-    """Χαμηλότερο = καλύτερο. Συνδυάζει deviation από target και weekend imbalance."""
+def score_solution(result: list[dict], target: int, doctors: list[dict]) -> float:
+    """Lower is better: distance from the target shift count plus weekend imbalance."""
     stats = {d["id"]: {"shifts": 0, "weekends": 0} for d in doctors}
     for entry in result:
-        is_we = entry.get("is_weekend", False)
-        is_hol = entry.get("is_holiday", False)
+        special = entry.get("is_weekend", False) or entry.get("is_holiday", False)
         for did in entry["doctors"]:
             if did not in stats:
                 continue
             stats[did]["shifts"] += 1
-            if is_we or is_hol:
+            if special:
                 stats[did]["weekends"] += 1
 
-    score = 0.0
-    for s in stats.values():
-        score += (s["shifts"] - target) ** 2
+    score = sum((s["shifts"] - target) ** 2 for s in stats.values())
     weekends = [s["weekends"] for s in stats.values()]
     if weekends:
         score += (max(weekends) - min(weekends)) * 10
     return score
 
 
-# ---------- Smart backtracking με MRV + forward checking ----------
-
-def _attempt_one_smart(
+def backtracking_search(
     days_sorted: list[dict],
     doctors: list[dict],
     deadline: float,
 ) -> Optional[list[dict]]:
-    """
-    Backtracking με:
-      - True MRV: σε κάθε βήμα διαλέγουμε το slot με τους λιγότερους candidates
-      - Forward checking: μετά από ανάθεση, ενημερώνουμε domains των επόμενων slots
-      - Wall-clock deadline (κοινό με τις άλλες προσπάθειες)
-    """
-    # Κατασκευή slots: (day_idx, slot_idx, date_obj)
-    slots: list[tuple[int, int, date]] = []
+    # One slot per required doctor: (day index, date)
+    slots: list[tuple[int, date]] = []
     for i, dd in enumerate(days_sorted):
-        n = 2 if dd["type"] == "open" else 1
         d = date.fromisoformat(dd["date"])
-        for j in range(n):
-            slots.append((i, j, d))
+        slots.extend((i, d) for _ in range(required_doctors(dd["type"])))
 
-    # Domain ανά slot: σύνολο doctor_ids που είναι candidates
-    # Αρχικά: όσοι γιατροί δεν είναι unavailable τη μέρα του slot
-    domains: list[set[str]] = []
-    for (_, _, d) in slots:
-        dom = {doc["id"] for doc in doctors if not _doctor_unavailable(doc, d)}
-        domains.append(dom)
-
-    # Result placeholder: για κάθε ημέρα, η λίστα γιατρών
-    result = [
-        {"date": dd["date"], "type": dd["type"], "doctors": []}
-        for dd in days_sorted
+    # Candidate doctors per slot; shrinks as assignments are made.
+    domains: list[set[str]] = [
+        {doc["id"] for doc in doctors if not doctor_unavailable(doc, d)} for _, d in slots
     ]
+    result = [{"date": dd["date"], "type": dd["type"], "doctors": []} for dd in days_sorted]
+    shift_count: dict[str, int] = {doc["id"]: 0 for doc in doctors}
+    assigned: set[int] = set()
 
-    # Για forward checking: doctor_id → set των slot_indices που έχει assigned
-    doc_to_slots: dict[str, set[int]] = {doc["id"]: set() for doc in doctors}
-
-    # Counter για load balancing (κατά voor candidate ordering)
-    doc_shift_count: dict[str, int] = {doc["id"]: 0 for doc in doctors}
-
-    def pick_next_slot(assigned: set[int]) -> Optional[int]:
-        """Επιστρέφει το index του slot με το μικρότερο domain (MRV)."""
+    def pick_next_slot() -> Optional[int]:
         best_idx = None
         best_size = float("inf")
         for idx in range(len(slots)):
             if idx in assigned:
                 continue
-            sz = len(domains[idx])
-            if sz < best_size:
-                best_size = sz
+            size = len(domains[idx])
+            if size < best_size:
+                best_size = size
                 best_idx = idx
-                if sz <= 1:  # δεν θα βρούμε καλύτερο
-                    return best_idx
+                if size <= 1:
+                    break
         return best_idx
 
-    def apply_assignment(slot_idx: int, did: str) -> list[tuple[int, str]]:
-        """Αναθέτει γιατρό σε slot και κάνει forward checking.
-        Επιστρέφει list (other_slot_idx, removed_did) ώστε να γίνει undo."""
+    def assign(slot_idx: int, did: str) -> list[tuple[int, str]]:
+        """Assign and remove the doctor from nearby slots. Returns what was removed."""
         removed: list[tuple[int, str]] = []
-        day_idx, _, d = slots[slot_idx]
+        day_idx, d = slots[slot_idx]
         result[day_idx]["doctors"].append(did)
-        doc_to_slots[did].add(slot_idx)
-        doc_shift_count[did] += 1
-
-        # Αφαίρεσε τον γιατρό από όλα τα slots που είναι:
-        # (α) ίδια μέρα (no double-booking)
-        # (β) εντός 3 ημερών από αυτό (3-day gap)
-        for other_idx in range(len(slots)):
-            if other_idx == slot_idx:
+        shift_count[did] += 1
+        for other_idx, (other_day_idx, other_d) in enumerate(slots):
+            if other_idx == slot_idx or did not in domains[other_idx]:
                 continue
-            other_day_idx, _, other_d = slots[other_idx]
-            close_in_time = abs((other_d - d).days) < 4
-            same_day = other_day_idx == day_idx
-            if (close_in_time or same_day) and did in domains[other_idx]:
+            if other_day_idx == day_idx or abs((other_d - d).days) < MIN_GAP_DAYS:
                 domains[other_idx].discard(did)
                 removed.append((other_idx, did))
         return removed
 
-    def undo_assignment(slot_idx: int, did: str, removed: list[tuple[int, str]]) -> None:
-        day_idx, _, _ = slots[slot_idx]
+    def unassign(slot_idx: int, did: str, removed: list[tuple[int, str]]) -> None:
+        day_idx, _ = slots[slot_idx]
         result[day_idx]["doctors"].pop()
-        doc_to_slots[did].discard(slot_idx)
-        doc_shift_count[did] -= 1
-        for (other_idx, rdid) in removed:
+        shift_count[did] -= 1
+        for other_idx, rdid in removed:
             domains[other_idx].add(rdid)
 
-    assigned: set[int] = set()
-
     def backtrack() -> bool:
-        # Time check ανά step (cheap)
         if time.monotonic() >= deadline:
             return False
-
         if len(assigned) == len(slots):
             return True
-
-        slot_idx = pick_next_slot(assigned)
+        slot_idx = pick_next_slot()
         if slot_idx is None:
             return True
-        # Αν το domain έχει αδειάσει, dead end
         if not domains[slot_idx]:
             return False
 
-        # Order candidates: γιατροί με λιγότερες εφημερίες πρώτα (load balancing)
-        # + tiny random tiebreak για variety μεταξύ attempts
-        candidates = sorted(
-            domains[slot_idx],
-            key=lambda did: (doc_shift_count[did], random.random()),
-        )
-
+        # Doctors with fewer shifts first; random tie-break so attempts differ.
+        candidates = sorted(domains[slot_idx], key=lambda did: (shift_count[did], random.random()))
         assigned.add(slot_idx)
         for did in candidates:
-            removed = apply_assignment(slot_idx, did)
+            removed = assign(slot_idx, did)
             if backtrack():
                 return True
-            undo_assignment(slot_idx, did, removed)
+            unassign(slot_idx, did, removed)
         assigned.discard(slot_idx)
         return False
 
-    success = backtrack()
-    return result if success else None
+    return result if backtrack() else None
 
 
-# ---------- Greedy partial fallback ----------
-
-def _greedy_partial(days_sorted: list[dict], doctors: list[dict]) -> list[dict]:
-    """Για κάθε μέρα, διάλεξε γιατρούς με τις λιγότερες εφημερίες μέχρι τώρα.
-    Παραλείπει slots που δεν μπορούν να γεμίσουν αντί να αποτυγχάνει."""
+def greedy_partial(days_sorted: list[dict], doctors: list[dict]) -> list[dict]:
+    """Fill each day with the least-used available doctors, leaving gaps when stuck."""
     doc_assignments: dict[str, list[date]] = {d["id"]: [] for d in doctors}
     result: list[dict] = []
     random.seed(0)
     for dd in days_sorted:
         d = date.fromisoformat(dd["date"])
-        n_required = 2 if dd["type"] == "open" else 1
-        candidates = sorted(
-            doctors,
-            key=lambda x: (len(doc_assignments[x["id"]]), random.random()),
-        )
+        n_required = required_doctors(dd["type"])
+        candidates = sorted(doctors, key=lambda x: (len(doc_assignments[x["id"]]), random.random()))
         chosen: list[str] = []
         for doc in candidates:
             if len(chosen) >= n_required:
                 break
-            if doc["id"] in chosen:
+            if doc["id"] in chosen or doctor_unavailable(doc, d):
                 continue
-            if _doctor_unavailable(doc, d):
-                continue
-            ok = True
-            for prev in doc_assignments[doc["id"]]:
-                if abs((d - prev).days) < 4:
-                    ok = False
-                    break
-            if not ok:
+            if any(abs((d - prev).days) < MIN_GAP_DAYS for prev in doc_assignments[doc["id"]]):
                 continue
             chosen.append(doc["id"])
             doc_assignments[doc["id"]].append(d)

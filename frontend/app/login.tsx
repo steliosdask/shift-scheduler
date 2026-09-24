@@ -57,7 +57,6 @@ export default function Login() {
             <Text style={styles.h2}>Σύνδεση Χρήστη</Text>
             <Text style={styles.label}>Όνομα χρήστη</Text>
             <TextInput
-              testID="login-username-input"
               style={styles.input}
               value={username}
               onChangeText={setUsername}
@@ -67,7 +66,6 @@ export default function Login() {
             />
             <Text style={styles.label}>Κωδικός</Text>
             <TextInput
-              testID="login-password-input"
               style={styles.input}
               value={password}
               onChangeText={setPassword}
@@ -76,13 +74,12 @@ export default function Login() {
               placeholderTextColor={Theme.colors.textDisabled}
             />
             {error ? (
-              <View style={styles.errorBox} testID="login-error">
+              <View style={styles.errorBox}>
                 <Ionicons name="alert-circle" size={16} color={Theme.colors.hardText} />
                 <Text style={styles.errorText}>{error}</Text>
               </View>
             ) : null}
             <TouchableOpacity
-              testID="login-submit-btn"
               style={[styles.cta, loading && { opacity: 0.6 }]}
               onPress={onSubmit}
               disabled={loading}

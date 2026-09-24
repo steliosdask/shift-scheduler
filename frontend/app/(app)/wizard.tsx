@@ -61,7 +61,7 @@ export default function Wizard() {
   const [days, setDays] = useState<DayDef[]>(buildDefaultDays(todayY, todayM === 12 ? 1 : todayM + 1));
   const [constraints, setConstraints] = useState<Constraint[]>([]);
   const [activeDoctor, setActiveDoctor] = useState<string>('');
-  const [step3Mode, setStep3Mode] = useState<'shift' | 'holiday'>('shift'); // Α/Κ vs αργίες
+  const [step3Mode, setStep3Mode] = useState<'shift' | 'holiday'>('shift');
   const [step4Mode, setStep4Mode] = useState<'negative' | 'leave'>('negative');
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -194,7 +194,6 @@ export default function Wizard() {
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.header}>
         <TouchableOpacity
-          testID="wizard-back-btn"
           onPress={() => (step === 0 ? router.back() : setStep(step - 1))}
           style={styles.iconBtn}
         >
@@ -225,7 +224,6 @@ export default function Wizard() {
               {GREEK_MONTHS.slice(1).map((m, idx) => (
                 <TouchableOpacity
                   key={m}
-                  testID={`month-${idx + 1}`}
                   onPress={() => setMonth(idx + 1)}
                   style={[styles.chip, month === idx + 1 && styles.chipActive]}
                 >
@@ -240,7 +238,6 @@ export default function Wizard() {
               {[todayY - 1, todayY, todayY + 1].map((y) => (
                 <TouchableOpacity
                   key={y}
-                  testID={`year-${y}`}
                   onPress={() => setYear(y)}
                   style={[styles.chip, year === y && styles.chipActive]}
                 >
@@ -266,7 +263,7 @@ export default function Wizard() {
             {doctors.map((d) => {
               const c = constraints.find((x) => x.doctor_id === d.id);
               return (
-                <View key={d.id} style={styles.docRow} testID={`doctor-toggle-${d.id}`}>
+                <View key={d.id} style={styles.docRow}>
                   <View style={styles.avatar}>
                     <Text style={styles.avatarText}>
                       {d.full_name.split(' ').map((p) => p[0]).slice(0, 2).join('')}
@@ -292,10 +289,8 @@ export default function Wizard() {
               <Text style={{ color: Theme.colors.hardText, fontWeight: '700' }}>Κόκκινο</Text> = δεν εφημερεύει (Κ). Σ/Κ με κίτρινο πλαίσιο.
             </Text>
 
-            {/* Mode toggle */}
             <View style={styles.modeRow}>
               <TouchableOpacity
-                testID="mode-shift"
                 onPress={() => setStep3Mode('shift')}
                 style={[styles.modeBtn, step3Mode === 'shift' && styles.modeBtnActive]}
               >
@@ -304,7 +299,6 @@ export default function Wizard() {
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                testID="mode-holiday"
                 onPress={() => setStep3Mode('holiday')}
                 style={[styles.modeBtn, step3Mode === 'holiday' && styles.modeBtnActive]}
               >
@@ -317,14 +311,12 @@ export default function Wizard() {
             {step3Mode === 'shift' ? (
               <View style={styles.bulkRow}>
                 <TouchableOpacity
-                  testID="bulk-alt-open"
                   onPress={() => setAllAlternating(true)}
                   style={[styles.btn, styles.btnGhost, { flex: 1 }]}
                 >
                   <Text style={styles.btnGhostText}>Α/Κ από 1η</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  testID="bulk-alt-closed"
                   onPress={() => setAllAlternating(false)}
                   style={[styles.btn, styles.btnGhost, { flex: 1 }]}
                 >
@@ -392,7 +384,6 @@ export default function Wizard() {
                   return (
                     <TouchableOpacity
                       key={c.doctor_id}
-                      testID={`select-doctor-${c.doctor_id}`}
                       style={[styles.chip, isActive && styles.chipActive]}
                       onPress={() => {
                         setActiveDoctor(c.doctor_id);
@@ -410,10 +401,8 @@ export default function Wizard() {
 
             {activeDoctor ? (
               <>
-                {/* Two-button mode selector */}
                 <View style={styles.modeRow}>
                   <TouchableOpacity
-                    testID="mode-negative"
                     onPress={() => setStep4Mode('negative')}
                     style={[
                       styles.modeBtn,
@@ -435,7 +424,6 @@ export default function Wizard() {
                     </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    testID="mode-leave"
                     onPress={() => setStep4Mode('leave')}
                     style={[
                       styles.modeBtn,
@@ -498,7 +486,6 @@ export default function Wizard() {
       <View style={styles.footer}>
         {step < 3 ? (
           <TouchableOpacity
-            testID="wizard-next-btn"
             style={[styles.btn, styles.btnPrimary]}
             onPress={() => setStep(step + 1)}
             disabled={step === 1 && activeCount === 0}
@@ -508,7 +495,6 @@ export default function Wizard() {
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
-            testID="wizard-create-btn"
             style={[styles.btn, styles.btnPrimary, creating && { opacity: 0.6 }]}
             onPress={onCreate}
             disabled={creating}
@@ -607,14 +593,12 @@ function DayCalendarGrid({
                 icon = <Ionicons name="close-circle" size={14} color={Theme.colors.hardBorder} />;
               }
             } else {
-              // leave
               cellBg = isLeave ? Theme.colors.pagniBg : isHoliday ? Theme.colors.softBg : Theme.colors.surface;
               if (isLeave) {
                 icon = <Ionicons name="airplane" size={12} color={Theme.colors.pagniText} />;
               }
             }
 
-            // Yellow border for weekends (always except auto-holidays which use full yellow bg)
             if (isWeekend) {
               borderColor = Theme.colors.softBorder;
               borderWidth = 2;
@@ -623,7 +607,6 @@ function DayCalendarGrid({
             return (
               <TouchableOpacity
                 key={cIdx}
-                testID={`cal-${d.date}`}
                 onPress={() => onPressDay(d.date)}
                 style={[styles.dayCell, { backgroundColor: cellBg, borderColor, borderWidth }]}
                 activeOpacity={0.7}

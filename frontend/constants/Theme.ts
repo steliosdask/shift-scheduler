@@ -1,4 +1,3 @@
-// Theme constants based on /app/design_guidelines.json
 export const Theme = {
   colors: {
     bg: '#FAFAF9',
@@ -10,9 +9,7 @@ export const Theme = {
     textDisabled: '#9CA3AF',
     textInverse: '#FFFFFF',
     border: '#E5E7EB',
-    borderFocus: '#111827',
     brand: '#111827',
-    brandHover: '#374151',
     hardBg: '#FEF2F2',
     hardBorder: '#EF4444',
     hardText: '#991B1B',
@@ -41,11 +38,6 @@ export const Theme = {
     sm: 6,
     md: 10,
     lg: 16,
-  },
-  font: {
-    // System fonts fallback (Greek-supporting). Can be replaced with Fira Sans / IBM Plex if added.
-    regular: undefined,
-    bold: undefined,
   },
 };
 
