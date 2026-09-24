@@ -247,7 +247,7 @@ export default function ScheduleEdit() {
               const dayNum = parseInt(dateStr.slice(8), 10);
               const required = dd?.type === 'open' ? 2 : 1;
               const assigned = sh?.doctors || [];
-              const isHoliday = !!holidays[dateStr];
+              const isHoliday = !!holidays[dateStr] || !!dd?.is_holiday;
               const isWeekend = dd?.is_weekend;
               const v = validation?.per_day[dateStr];
               const hasHard = (v?.hard.length || 0) > 0;
@@ -401,7 +401,7 @@ export default function ScheduleEdit() {
                   </Text>
                   <Text style={styles.sheetSub}>
                     {dd?.type === 'open' ? 'Ανοιχτή Εφημερία (ΠΑΓΝΗ)' : 'Κλειστή Εφημερία (ΒΕΝΙΖΕΛΕΙΟ)'} · {required} γιατρ{required === 1 ? 'ός' : 'οί'}
-                    {holidays[editDay] ? ` · ${holidays[editDay]}` : ''}
+                    {holidays[editDay] ? ` · ${holidays[editDay]}` : dd?.is_holiday ? ' · Αργία' : ''}
                   </Text>
                   {v?.hard.length ? (
                     <View style={[styles.alert, styles.alertHard]} testID="day-violations">

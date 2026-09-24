@@ -57,6 +57,10 @@ def build_schedule_pdf(
     doc_map = {d["id"]: d["full_name"] for d in doctors}
     type_map = {d["date"]: d["type"] for d in day_definitions}
     shift_map = {s["date"]: s["doctors"] for s in shifts}
+    # Official holidays plus the custom ones added in the wizard (stored per schedule)
+    holiday_dates = {
+        d["date"] for d in day_definitions if d.get("is_holiday") or d.get("is_custom_holiday")
+    }
 
     # Build calendar grid: rows of weeks, columns Sun..Sat
     n_days = monthrange(year, month)[1]
@@ -102,7 +106,8 @@ def build_schedule_pdf(
                 label_type = "Α"  # Ανοιχτή - ΠΑΓΝΗ
             elif t == "closed":
                 label_type = "Κ"  # Κλειστή - ΒΕΝΙΖΕΛΕΙΟ
-            hname = holiday_name(d)
+            is_hol = is_holiday(d) or iso in holiday_dates
+            hname = holiday_name(d) or ("Αργία" if is_hol else None)
             top_line = f"{d.day}"
             if label_type:
                 top_line += f"  [{label_type}]"
@@ -114,7 +119,7 @@ def build_schedule_pdf(
             row.append(cell_text)
 
             # Determine bg color
-            if is_holiday(d):
+            if is_hol:
                 cell_styles.append(("BACKGROUND", (c_idx, w_idx), (c_idx, w_idx), holiday_yellow))
             elif d.weekday() >= 5:
                 cell_styles.append(("BACKGROUND", (c_idx, w_idx), (c_idx, w_idx), weekend_red))
