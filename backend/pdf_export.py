@@ -1,6 +1,7 @@
 """Generate A4 landscape PDF schedule with Greek month grid (Sun-Sat)."""
 import io
 from datetime import date
+from pathlib import Path
 from calendar import monthrange
 
 from reportlab.lib.pagesizes import A4, landscape
@@ -19,14 +20,13 @@ from reportlab.lib.units import mm
 
 from holidays_gr import holiday_name, is_holiday
 
-# Register DejaVu Sans (Greek-capable Unicode font)
-DEJAVU_REGULAR = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-DEJAVU_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-try:
-    pdfmetrics.registerFont(TTFont("DejaVu", DEJAVU_REGULAR))
-    pdfmetrics.registerFont(TTFont("DejaVu-Bold", DEJAVU_BOLD))
-except Exception:
-    pass
+# Register DejaVu Sans (Greek-capable Unicode font), bundled in backend/fonts/
+FONTS_DIR = Path(__file__).resolve().parent / "fonts"
+for font_name, font_file in (("DejaVu", "DejaVuSans.ttf"), ("DejaVu-Bold", "DejaVuSans-Bold.ttf")):
+    font_path = FONTS_DIR / font_file
+    if not font_path.is_file():
+        raise FileNotFoundError(f"{font_file} not found in {FONTS_DIR}")
+    pdfmetrics.registerFont(TTFont(font_name, str(font_path)))
 
 GREEK_MONTHS = [
     "", "Ιανουάριος", "Φεβρουάριος", "Μάρτιος", "Απρίλιος", "Μάιος", "Ιούνιος",
@@ -122,15 +122,46 @@ def build_schedule_pdf(
                 cell_styles.append(("BACKGROUND", (c_idx, w_idx), (c_idx, w_idx), open_blue))
         table_data.append(row)
 
-    # Determine column widths to use full page
+    title_style = ParagraphStyle(
+        name="Title",
+        fontName="DejaVu-Bold",
+        fontSize=18,
+        leading=22,
+        textColor=colors.HexColor("#0A0D0A"),
+        alignment=1,
+        spaceAfter=8,
+    )
+    legend_style = ParagraphStyle(
+        name="Legend",
+        fontName="DejaVu",
+        fontSize=8,
+        textColor=colors.HexColor("#4B5563"),
+        alignment=1,
+    )
+    title = Paragraph(f"Πρόγραμμα Εφημεριών — {GREEK_MONTHS[month]} {year}", title_style)
+    legend = Paragraph(
+        "[Α] = Ανοιχτή Εφημερία (ΠΑΓΝΗ) — 2 γιατροί &nbsp;&nbsp;|&nbsp;&nbsp; "
+        "[Κ] = Κλειστή Εφημερία (ΒΕΝΙΖΕΛΕΙΟ) — 1 γιατρός &nbsp;&nbsp;|&nbsp;&nbsp; "
+        "Κίτρινο = Αργία &nbsp;&nbsp;|&nbsp;&nbsp; Κόκκινο = Σ/Κ",
+        legend_style,
+    )
+    legend_gap = 4 * mm
+
+    # Size rows so title + table + legend fit on a single page
+    # (frame height minus its default 6pt top/bottom padding, minus a small safety margin)
     available = landscape(A4)[0] - 20 * mm
     col_w = available / 7
-    row_h = (landscape(A4)[1] - 50 * mm) / max(1, len(weeks))
+    header_h = 10 * mm
+    frame_h = doc.height - 12 - 2 * mm
+    _, title_h = title.wrap(doc.width, frame_h)
+    _, legend_h = legend.wrap(doc.width, frame_h)
+    table_h = frame_h - title_h - title_style.spaceAfter - legend_gap - legend_h
+    row_h = (table_h - header_h) / max(1, len(weeks))
 
     table = Table(
         table_data,
         colWidths=[col_w] * 7,
-        rowHeights=[10 * mm] + [row_h] * len(weeks),
+        rowHeights=[header_h] + [row_h] * len(weeks),
     )
     style = TableStyle(
         [
@@ -150,42 +181,6 @@ def build_schedule_pdf(
     )
     table.setStyle(style)
 
-    title_style = ParagraphStyle(
-        name="Title",
-        fontName="DejaVu-Bold",
-        fontSize=18,
-        textColor=colors.HexColor("#0A0D0A"),
-        alignment=1,
-        spaceAfter=4,
-    )
-    sub_style = ParagraphStyle(
-        name="Sub",
-        fontName="DejaVu",
-        fontSize=10,
-        textColor=colors.HexColor("#4B5563"),
-        alignment=1,
-        spaceAfter=8,
-    )
-    legend_style = ParagraphStyle(
-        name="Legend",
-        fontName="DejaVu",
-        fontSize=8,
-        textColor=colors.HexColor("#4B5563"),
-        alignment=1,
-        spaceBefore=8,
-    )
-
-    elements = [
-        Paragraph(f"Πρόγραμμα Εφημεριών — {GREEK_MONTHS[month]} {year}", title_style),
-        Paragraph("ΠΑΓΝΗ (Ανοιχτή) / ΒΕΝΙΖΕΛΕΙΟ (Κλειστή)", sub_style),
-        table,
-        Spacer(1, 4 * mm),
-        Paragraph(
-            "[Α] = Ανοιχτή Εφημερία (ΠΑΓΝΗ) — 2 γιατροί &nbsp;&nbsp;|&nbsp;&nbsp; "
-            "[Κ] = Κλειστή Εφημερία (ΒΕΝΙΖΕΛΕΙΟ) — 1 γιατρός &nbsp;&nbsp;|&nbsp;&nbsp; "
-            "Κίτρινο = Αργία &nbsp;&nbsp;|&nbsp;&nbsp; Κόκκινο = Σ/Κ",
-            legend_style,
-        ),
-    ]
+    elements = [title, table, Spacer(1, legend_gap), legend]
     doc.build(elements)
     return buffer.getvalue()
