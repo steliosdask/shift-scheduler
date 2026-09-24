@@ -15,6 +15,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { Theme, GREEK_MONTHS } from '../../constants/Theme';
 import { api, formatApiError } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
+import { confirmAction } from '@/lib/confirm';
 
 type Schedule = {
   id: string;
@@ -52,23 +53,37 @@ export default function Dashboard() {
     }, [load])
   );
 
-  const onDelete = (id: string) => {
-    Alert.alert('Διαγραφή Προγράμματος', 'Σίγουρα θέλετε να διαγράψετε αυτό το πρόγραμμα;', [
-      { text: 'Άκυρο', style: 'cancel' },
-      {
-        text: 'Διαγραφή',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await api.delete(`/schedules/${id}`);
-            load();
-          } catch (e) {
-            Alert.alert('Σφάλμα', formatApiError(e));
-          }
-        },
-      },
-    ]);
+  const onDelete = async (id: string) => {
+    const ok = await confirmAction(
+      'Διαγραφή Προγράμματος',
+      'Σίγουρα θέλετε να διαγράψετε αυτό το πρόγραμμα;',
+      { confirmText: 'Διαγραφή', destructive: true }
+    );
+    if (!ok) return;
+    try {
+      await api.delete(`/schedules/${id}`);
+      load();
+    } catch (e) {
+      Alert.alert('Σφάλμα', formatApiError(e));
+    }
   };
+  // const onDelete = (id: string) => {
+  //   Alert.alert('Διαγραφή Προγράμματος', 'Σίγουρα θέλετε να διαγράψετε αυτό το πρόγραμμα;', [
+  //     { text: 'Άκυρο', style: 'cancel' },
+  //     {
+  //       text: 'Διαγραφή',
+  //       style: 'destructive',
+  //       onPress: async () => {
+  //         try {
+  //           await api.delete(`/schedules/${id}`);
+  //           load();
+  //         } catch (e) {
+  //           Alert.alert('Σφάλμα', formatApiError(e));
+  //         }
+  //       },
+  //     },
+  //   ]);
+  // };
 
   if (loading) {
     return (

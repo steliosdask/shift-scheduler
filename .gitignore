@@ -79,7 +79,7 @@ agenthub/agents/youtube/db
 memory/test_credentials.md
 
 # Mobile development
-android-sdk/-e 
+android-sdk/
 # Environment and credential files
 .env
 .env.*
@@ -88,3 +88,9 @@ credentials.json
 *.pem
 *.key
 .credentials
+
+# Local caches / backups
+.metro-cache/
+.expo/
+*.bak
+start app.rtf

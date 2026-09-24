@@ -284,9 +284,6 @@ export default function ScheduleEdit() {
                     {hasHard && <Ionicons name="close-circle" size={12} color={Theme.colors.hardBorder} />}
                     {!hasHard && hasSoft && <Ionicons name="warning" size={11} color={Theme.colors.softBorder} />}
                   </View>
-                  <Text style={[styles.cellType, dd?.type === 'open' ? { color: Theme.colors.pagniText } : { color: Theme.colors.venizeleioText }]}>
-                    {dd?.type === 'open' ? 'Α' : 'Κ'}
-                  </Text>
                   <View style={styles.cellNames}>
                     {assigned.length === 0 ? (
                       <Text style={styles.cellEmpty2}>—</Text>

@@ -357,17 +357,27 @@ async def auto_generate(schedule_id: str, current: dict = Depends(get_current_us
         raise HTTPException(400, "Δεν υπάρχουν ενεργοί γιατροί στο πρόγραμμα")
 
     day_defs = [d for d in s["day_definitions"] if d["type"] in ("open", "closed")]
-    result = generate_schedule(
+    gen_result = generate_schedule(
         year=s["year"],
         month=s["month"],
         day_definitions=day_defs,
         doctors=doctors_payload,
     )
-    if result is None:
+    # Αν είναι ολικά ανέφικτο (zero doctors ή feasibility check failed χωρίς partial)
+    if gen_result["schedule"] is None:
         raise HTTPException(
             422,
-            "Δεν βρέθηκε αποδεκτή λύση. Ελέγξτε αρνητικές ημέρες / άδειες (ίσως πολλές ταυτόχρονα).",
+            gen_result["reason"] or "Δεν βρέθηκε αποδεκτή λύση.",
         )
+    # Αν είναι infeasible αλλά έχουμε partial, το επιστρέφουμε σαν 422 με το partial
+    # για να δει ο chief τι λείπει. Εναλλακτικά, μπορούμε να το αποθηκεύσουμε σαν draft.
+    if gen_result["infeasible"]:
+        detail = gen_result["reason"] or "Μη εφικτό σενάριο."
+        if gen_result["suggestions"]:
+            detail += " " + " ".join(gen_result["suggestions"])
+        raise HTTPException(422, detail)
+
+    result = gen_result["schedule"]
     await db.schedules.update_one(
         {"id": schedule_id},
         {
