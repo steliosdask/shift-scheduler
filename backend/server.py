@@ -327,13 +327,8 @@ async def auto_generate(schedule_id: str, current: dict = Depends(get_current_us
 
     day_defs = [d for d in s["day_definitions"] if d["type"] in ("open", "closed")]
     result = generate_schedule(day_definitions=day_defs, doctors=doctors)
-    if result["schedule"] is None:
-        raise HTTPException(422, result["reason"] or "Δεν βρέθηκε αποδεκτή λύση.")
     if result["infeasible"]:
-        detail = result["reason"] or "Μη εφικτό σενάριο."
-        if result["suggestions"]:
-            detail += " " + " ".join(result["suggestions"])
-        raise HTTPException(422, detail)
+        raise HTTPException(422, " ".join([result["reason"], *result["suggestions"]]))
 
     await db.schedules.update_one(
         {"id": schedule_id},

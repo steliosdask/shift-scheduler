@@ -22,14 +22,19 @@ from datetime import date
 from typing import Optional
 
 MIN_GAP_DAYS = 4  # 3 free days between shifts
+MAX_NEGATIVE_DAYS = 5  # more than this per doctor triggers a warning
+MAX_PAID_HOLIDAYS = 2  # holidays beyond this are not paid double
 NEGATIVE_DAY_PENALTY = 1000  # outweighs any balance difference when scoring
+TIME_BUDGET_SECONDS = 15.0
 
 
 def required_doctors(day_type: str) -> int:
     return 2 if day_type == "open" else 1
 
 
-def target_shifts(total_slots: int, n_doctors: int) -> int:
+def target_shifts(days: list[dict], n_doctors: int) -> int:
+    """Average number of shifts per doctor for the month."""
+    total_slots = sum(required_doctors(d["type"]) for d in days)
     return max(1, round(total_slots / n_doctors)) if n_doctors else 0
 
 
@@ -50,12 +55,7 @@ def can_work(doctor: dict, d: date, allow_negative: bool) -> bool:
 
 # ---------- Validation ----------
 
-def validate_assignment(
-    schedule_dates: list[dict],
-    doctors: list[dict],
-    target_per_doctor: Optional[int] = None,
-    negative_day_limit: int = 5,
-) -> dict:
+def validate_assignment(schedule_dates: list[dict], doctors: list[dict]) -> dict:
     hard = []
     soft = []
     per_day: dict = {}
@@ -66,9 +66,7 @@ def validate_assignment(
     doc_map = {d["id"]: d for d in doctors}
     doc_dates: dict[str, list[date]] = {d["id"]: [] for d in doctors}
 
-    if target_per_doctor is None:
-        total_slots = sum(required_doctors(e["type"]) for e in schedule_dates)
-        target_per_doctor = target_shifts(total_slots, len(doctors))
+    target = target_shifts(schedule_dates, len(doctors))
 
     def add_hard(d_iso: str, issue: dict):
         per_day[d_iso]["hard"].append(issue)
@@ -132,18 +130,21 @@ def validate_assignment(
 
     weekend_counts = [s["weekends"] for s in per_doctor_stats.values()]
     if weekend_counts and max(weekend_counts) - min(weekend_counts) > 1:
-        soft.append({"code": "HC5", "msg": "Άνιση κατανομή Σ/Κ μεταξύ γιατρών (διαφορά > 1)"})
+        soft.append({"code": "SC5", "msg": "Άνιση κατανομή Σ/Κ μεταξύ γιατρών (διαφορά > 1)"})
 
     for did, stats in per_doctor_stats.items():
-        if stats["holidays"] > 2:
-            msg = f"Ο/Η {stats['name']} έχει {stats['holidays']} αργίες (>2). Η 3η+ αργία δεν πληρώνεται διπλά."
+        if stats["holidays"] > MAX_PAID_HOLIDAYS:
+            msg = (
+                f"Ο/Η {stats['name']} έχει {stats['holidays']} αργίες (>{MAX_PAID_HOLIDAYS}). "
+                f"Η {MAX_PAID_HOLIDAYS + 1}η+ αργία δεν πληρώνεται διπλά."
+            )
             soft.append({"code": "SC1", "msg": msg, "doctor_id": did})
-        if abs(stats["shifts"] - target_per_doctor) > 1:
-            msg = f"Ο/Η {stats['name']} έχει {stats['shifts']} εφημερίες (στόχος {target_per_doctor})"
+        if abs(stats["shifts"] - target) > 1:
+            msg = f"Ο/Η {stats['name']} έχει {stats['shifts']} εφημερίες (στόχος {target})"
             soft.append({"code": "SC2", "msg": msg, "doctor_id": did})
         nd = len(doc_map[did].get("negative_days", []))
-        if nd > negative_day_limit:
-            msg = f"Ο/Η {stats['name']} έχει δηλώσει {nd} αρνητικές ημέρες (όριο {negative_day_limit})"
+        if nd > MAX_NEGATIVE_DAYS:
+            msg = f"Ο/Η {stats['name']} έχει δηλώσει {nd} αρνητικές ημέρες (όριο {MAX_NEGATIVE_DAYS})"
             soft.append({"code": "SC3", "msg": msg, "doctor_id": did})
 
     return {
@@ -151,28 +152,28 @@ def validate_assignment(
         "soft": soft,
         "per_day": per_day,
         "per_doctor": per_doctor_stats,
-        "is_valid_hard": len(hard) == 0,
     }
 
 
 # ---------- Generation ----------
 
-def feasibility_check(
-    days_sorted: list[dict], doctors: list[dict], allow_negative: bool
-) -> tuple[bool, list[str]]:
-    """Cheap checks that rule out impossible months before searching."""
+def feasibility_issues(days_sorted: list[dict], doctors: list[dict], allow_negative: bool) -> list[str]:
+    """Cheap checks that rule out impossible months before searching.
+
+    Only the check with allow_negative=True is shown to the user (leaves are the
+    only hard limit); the strict one just decides whether to try without negative days.
+    """
     issues: list[str] = []
-    reason = "μη σε άδεια" if allow_negative else "μη αρνητικοί/μη σε άδεια"
 
     for dd in days_sorted:
         d = date.fromisoformat(dd["date"])
         required = required_doctors(dd["type"])
-        available = [doc for doc in doctors if can_work(doc, d, allow_negative)]
-        if len(available) < required:
+        available = sum(1 for doc in doctors if can_work(doc, d, allow_negative))
+        if available < required:
             issues.append(
                 f"Η ημερομηνία {dd['date']} χρειάζεται {required} γιατρ"
-                f"{'ούς' if required == 2 else 'ό'} αλλά μόνο {len(available)} "
-                f"είναι διαθέσιμοι ({reason})."
+                f"{'ούς' if required == 2 else 'ό'} αλλά μόνο {available} "
+                f"είναι διαθέσιμοι (μη σε άδεια)."
             )
 
     total_demand = sum(required_doctors(d["type"]) for d in days_sorted)
@@ -188,31 +189,34 @@ def feasibility_check(
     if total_capacity < total_demand:
         issues.append(
             f"Συνολικά απαιτούνται {total_demand} εφημερίες αλλά το θεωρητικό "
-            f"capacity των γιατρών είναι {total_capacity} (λόγω 3ήμερου κενού + "
-            f"{'αδειών' if allow_negative else 'αρνητικών δηλώσεων'}). "
+            f"capacity των γιατρών είναι {total_capacity} (λόγω 3ήμερου κενού + αδειών). "
             f"Διαφορά: {total_demand - total_capacity}."
         )
 
-    return len(issues) == 0, issues
+    return issues
 
 
 def generate_schedule(
     day_definitions: list[dict],
     doctors: list[dict],
-    target_per_doctor: Optional[int] = None,
-    time_budget_seconds: float = 15.0,
+    time_budget_seconds: float = TIME_BUDGET_SECONDS,
 ) -> dict:
-    """Returns {"schedule", "infeasible", "partial", "reason", "suggestions"}."""
-    if not doctors:
+    """Returns {"schedule", "infeasible", "reason", "suggestions"}.
+
+    An infeasible month has no schedule, only the reason and suggestions.
+    """
+    days_sorted = sorted(day_definitions, key=lambda x: x["date"])
+
+    # Negative days are only preferences, so only leaves can make a month impossible.
+    issues = feasibility_issues(days_sorted, doctors, allow_negative=True)
+    if issues:
         return {
             "schedule": None,
             "infeasible": True,
-            "partial": False,
-            "reason": "Δεν υπάρχουν ενεργοί γιατροί.",
-            "suggestions": ["Προσθέστε γιατρούς ή ενεργοποιήστε υπάρχοντες."],
+            "reason": "Το σενάριο δεν είναι μαθηματικά εφικτό με τους τρέχοντες περιορισμούς.",
+            "suggestions": issues + ["Μειώστε τις άδειες σε προβληματικές ημερομηνίες, ή προσθέστε γιατρούς."],
         }
 
-    days_sorted = sorted(day_definitions, key=lambda x: x["date"])
     flag_map = {
         d["date"]: (d.get("is_weekend", False), d.get("is_holiday", False))
         for d in days_sorted
@@ -223,23 +227,8 @@ def generate_schedule(
             entry["is_weekend"], entry["is_holiday"] = flag_map.get(entry["date"], (False, False))
         return result
 
-    # Negative days are only preferences, so only leaves can make a month impossible.
-    feasible, issues = feasibility_check(days_sorted, doctors, allow_negative=True)
-    if not feasible:
-        return {
-            "schedule": attach_flags(greedy_partial(days_sorted, doctors)),
-            "infeasible": True,
-            "partial": True,
-            "reason": "Το σενάριο δεν είναι μαθηματικά εφικτό με τους τρέχοντες περιορισμούς.",
-            "suggestions": issues + ["Μειώστε τις άδειες σε προβληματικές ημερομηνίες, ή προσθέστε γιατρούς."],
-        }
-
-    total_slots = sum(required_doctors(d["type"]) for d in days_sorted)
-    if target_per_doctor is None:
-        target_per_doctor = target_shifts(total_slots, len(doctors))
-
+    target = target_shifts(days_sorted, len(doctors))
     start = time.monotonic()
-    deadline = start + time_budget_seconds
 
     def search(allow_negative: bool, until: float) -> Optional[list[dict]]:
         """Run randomized searches until `until` and return the best schedule found."""
@@ -253,7 +242,7 @@ def generate_schedule(
             if result is None:
                 continue
             attach_flags(result)
-            score = score_solution(result, target_per_doctor, doctors)
+            score = score_solution(result, target, doctors)
             if score < best_score:
                 best_score = score
                 best_solution = result
@@ -262,27 +251,19 @@ def generate_schedule(
         return best_solution
 
     best = None
-    strict_feasible, _ = feasibility_check(days_sorted, doctors, allow_negative=False)
-    if strict_feasible:
+    if not feasibility_issues(days_sorted, doctors, allow_negative=False):
         best = search(allow_negative=False, until=start + time_budget_seconds * 0.6)
     if best is None:
-        best = search(allow_negative=True, until=deadline)
+        best = search(allow_negative=True, until=start + time_budget_seconds)
 
     if best is not None:
-        return {
-            "schedule": best,
-            "infeasible": False,
-            "partial": False,
-            "reason": None,
-            "suggestions": [],
-        }
+        return {"schedule": best, "infeasible": False, "reason": None, "suggestions": []}
 
     partial = attach_flags(greedy_partial(days_sorted, doctors))
     unfilled = [e["date"] for e in partial if len(e["doctors"]) < required_doctors(e["type"])]
     return {
         "schedule": partial,
         "infeasible": False,
-        "partial": True,
         "reason": (
             f"Δεν βρέθηκε πλήρης λύση εντός {int(time_budget_seconds)} δευτερολέπτων. "
             f"Επιστρέφεται μερική λύση που μπορείτε να συμπληρώσετε χειροκίνητα."
@@ -290,7 +271,7 @@ def generate_schedule(
         "suggestions": [
             f"{len(unfilled)} ημερομηνίες δεν γέμισαν: {', '.join(unfilled[:5])}"
             + ("..." if len(unfilled) > 5 else ""),
-            "Δοκιμάστε να μειώσετε αρνητικές δηλώσεις, ή συμπληρώστε χειροκίνητα από την οθόνη επεξεργασίας.",
+            "Δοκιμάστε να μειώσετε τις άδειες, ή συμπληρώστε χειροκίνητα από την οθόνη επεξεργασίας.",
         ],
     }
 
@@ -304,27 +285,25 @@ def score_solution(result: list[dict], target: int, doctors: list[dict]) -> floa
         special = entry.get("is_weekend", False) or entry.get("is_holiday", False)
         d = date.fromisoformat(entry["date"])
         for did in entry["doctors"]:
-            if did not in stats:
-                continue
             stats[did]["shifts"] += 1
             if special:
                 stats[did]["weekends"] += 1
             if is_negative_day(doc_map[did], d):
                 negatives += 1
 
-    score = negatives * NEGATIVE_DAY_PENALTY
-    score += sum((s["shifts"] - target) ** 2 for s in stats.values())
     weekends = [s["weekends"] for s in stats.values()]
-    if weekends:
-        score += (max(weekends) - min(weekends)) * 10
-    return score
+    return (
+        negatives * NEGATIVE_DAY_PENALTY
+        + sum((s["shifts"] - target) ** 2 for s in stats.values())
+        + (max(weekends) - min(weekends)) * 10
+    )
 
 
 def backtracking_search(
     days_sorted: list[dict],
     doctors: list[dict],
     deadline: float,
-    allow_negative: bool = False,
+    allow_negative: bool,
 ) -> Optional[list[dict]]:
     doc_map = {doc["id"]: doc for doc in doctors}
 
@@ -342,8 +321,8 @@ def backtracking_search(
     shift_count: dict[str, int] = {doc["id"]: 0 for doc in doctors}
     assigned: set[int] = set()
 
-    def pick_next_slot() -> Optional[int]:
-        best_idx = None
+    def pick_next_slot() -> int:
+        best_idx = -1
         best_size = float("inf")
         for idx in range(len(slots)):
             if idx in assigned:
@@ -383,8 +362,6 @@ def backtracking_search(
         if len(assigned) == len(slots):
             return True
         slot_idx = pick_next_slot()
-        if slot_idx is None:
-            return True
         if not domains[slot_idx]:
             return False
 
