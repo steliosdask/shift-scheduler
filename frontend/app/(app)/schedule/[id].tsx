@@ -11,7 +11,7 @@ import {
   Linking,
   Platform,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Theme, GREEK_MONTHS, GREEK_DAYS_SHORT, GREEK_DAYS_LONG } from '../../../constants/Theme';
@@ -38,6 +38,7 @@ export default function ScheduleEdit() {
   const params = useLocalSearchParams();
   const id = params.id as string;
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [schedule, setSchedule] = useState<Schedule | null>(null);
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [holidays, setHolidays] = useState<Record<string, string>>({});
@@ -221,7 +222,7 @@ export default function ScheduleEdit() {
         </View>
       )}
 
-      <ScrollView contentContainerStyle={{ padding: Theme.spacing.md, paddingBottom: 180 }}>
+      <ScrollView contentContainerStyle={{ padding: Theme.spacing.md, paddingBottom: 180 + insets.bottom }}>
         <View style={styles.weekRow}>
           {GREEK_DAYS_SHORT.map((dn) => (
             <Text key={dn} style={styles.weekHead}>{dn}</Text>
@@ -317,7 +318,7 @@ export default function ScheduleEdit() {
         </View>
       </ScrollView>
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: Theme.spacing.md + insets.bottom }]}>
         <View style={styles.footerRow}>
           <TouchableOpacity
             style={[styles.btn, styles.btnGhost, saving && { opacity: 0.6 }]}

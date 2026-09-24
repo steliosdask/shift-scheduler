@@ -9,7 +9,7 @@ import {
   ActivityIndicator,
   Switch,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { Theme, GREEK_MONTHS, GREEK_DAYS_SHORT } from '../../constants/Theme';
@@ -53,6 +53,7 @@ function buildDefaultDays(year: number, month: number): DayDef[] {
 
 export default function Wizard() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [step, setStep] = useState(0);
   const [year, setYear] = useState(todayY);
   const [month, setMonth] = useState(todayM === 12 ? 1 : todayM + 1);
@@ -214,7 +215,7 @@ export default function Wizard() {
         ))}
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: Theme.spacing.md, paddingBottom: 100 }}>
+      <ScrollView contentContainerStyle={{ padding: Theme.spacing.md, paddingBottom: 100 + insets.bottom }}>
         {step === 0 && (
           <View>
             <Text style={styles.h2}>Επιλέξτε Μήνα & Έτος</Text>
@@ -483,7 +484,7 @@ export default function Wizard() {
         )}
       </ScrollView>
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: Theme.spacing.md + insets.bottom }]}>
         {step < 3 ? (
           <TouchableOpacity
             style={[styles.btn, styles.btnPrimary]}

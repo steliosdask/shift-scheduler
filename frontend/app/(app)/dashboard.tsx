@@ -11,7 +11,7 @@ import {
   Modal,
   ScrollView,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Theme, GREEK_MONTHS } from '../../constants/Theme';
@@ -32,6 +32,7 @@ type Schedule = {
 export default function Dashboard() {
   const { user, logout } = useAuth();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [doctorsCount, setDoctorsCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -153,7 +154,7 @@ export default function Dashboard() {
       <FlatList
         data={schedules}
         keyExtractor={(it) => it.id}
-        contentContainerStyle={{ padding: Theme.spacing.md, paddingTop: 0 }}
+        contentContainerStyle={{ padding: Theme.spacing.md, paddingTop: 0, paddingBottom: Theme.spacing.md + insets.bottom }}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />
         }

@@ -13,7 +13,7 @@ import {
   ActivityIndicator,
   Switch,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Theme } from '../../constants/Theme';
@@ -29,6 +29,7 @@ type Doctor = {
 
 export default function DoctorsScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -126,7 +127,7 @@ export default function DoctorsScreen() {
       <FlatList
         data={doctors}
         keyExtractor={(d) => d.id}
-        contentContainerStyle={{ padding: Theme.spacing.md }}
+        contentContainerStyle={{ padding: Theme.spacing.md, paddingBottom: Theme.spacing.md + insets.bottom }}
         ListEmptyComponent={
           <View style={styles.empty}>
             <Ionicons name="people-outline" size={48} color={Theme.colors.textDisabled} />
