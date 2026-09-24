@@ -17,7 +17,7 @@ from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Respons
 from fastapi.responses import StreamingResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 
 from holidays_gr import get_holidays, is_holiday, is_special_day
 from scheduler import generate_schedule, validate_assignment
@@ -46,10 +46,10 @@ def verify_password(plain: str, hashed: str) -> bool:
     return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
 
 
-def create_access_token(user_id: str, email: str) -> str:
+def create_access_token(user_id: str, username: str) -> str:
     payload = {
         "sub": user_id,
-        "email": email,
+        "username": username,
         "exp": datetime.now(timezone.utc) + timedelta(days=7),
         "type": "access",
     }
@@ -58,13 +58,13 @@ def create_access_token(user_id: str, email: str) -> str:
 
 # ----- Pydantic models -----
 class LoginIn(BaseModel):
-    email: EmailStr
+    username: str
     password: str
 
 
 class UserOut(BaseModel):
     id: str
-    email: str
+    username: str
     role: str
 
 
@@ -140,15 +140,15 @@ api = APIRouter(prefix="/api")
 # ----- Auth -----
 @api.post("/auth/login")
 async def login(data: LoginIn):
-    user = await db.users.find_one({"email": data.email.lower()})
+    user = await db.users.find_one({"username": data.username.strip().lower()})
     if not user or not verify_password(data.password, user["password_hash"]):
-        raise HTTPException(401, "Λάθος email ή κωδικός")
-    token = create_access_token(user["id"], user["email"])
+        raise HTTPException(401, "Λάθος όνομα χρήστη ή κωδικός")
+    token = create_access_token(user["id"], user["username"])
     return {
         "access_token": token,
         "user": {
             "id": user["id"],
-            "email": user["email"],
+            "username": user["username"],
             "role": user["role"],
         },
     }
@@ -477,29 +477,29 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup():
     # Indexes
-    await db.users.create_index("email", unique=True)
+    await db.users.create_index("username", unique=True)
     await db.doctors.create_index("id", unique=True)
     await db.schedules.create_index("id", unique=True)
     await db.schedules.create_index([("year", 1), ("month", 1)])
 
     # Seed admin
-    admin_email = os.environ["ADMIN_EMAIL"].lower()
+    admin_username = os.environ["ADMIN_USERNAME"].strip().lower()
     admin_password = os.environ["ADMIN_PASSWORD"]
-    existing = await db.users.find_one({"email": admin_email})
+    existing = await db.users.find_one({"username": admin_username})
     if not existing:
         await db.users.insert_one(
             {
                 "id": str(uuid.uuid4()),
-                "email": admin_email,
+                "username": admin_username,
                 "password_hash": hash_password(admin_password),
                 "role": "chief",
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
         )
-        logger.info(f"Seeded admin user: {admin_email}")
+        logger.info(f"Seeded admin user: {admin_username}")
     elif not verify_password(admin_password, existing["password_hash"]):
         await db.users.update_one(
-            {"email": admin_email},
+            {"username": admin_username},
             {"$set": {"password_hash": hash_password(admin_password)}},
         )
         logger.info("Updated admin password")

@@ -98,7 +98,7 @@ export default function Dashboard() {
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
           <Text style={styles.eyebrow}>Καλώς ήρθατε</Text>
-          <Text style={styles.title}>{user?.email}</Text>
+          <Text style={styles.title}>{user?.username}</Text>
         </View>
         <TouchableOpacity testID="logout-btn" onPress={logout} style={styles.iconBtn}>
           <Ionicons name="log-out-outline" size={22} color={Theme.colors.textPrimary} />

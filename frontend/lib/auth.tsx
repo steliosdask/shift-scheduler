@@ -1,11 +1,11 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { api, getAuthToken, setAuthToken, clearAuthToken } from './api';
 
-type User = { id: string; email: string; role: string };
+type User = { id: string; username: string; role: string };
 
 type AuthCtx = {
   user: User | null | undefined; // undefined=loading, null=not-authed
-  login: (email: string, password: string) => Promise<void>;
+  login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
 };
 
@@ -33,8 +33,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })();
   }, []);
 
-  const login = async (email: string, password: string) => {
-    const r = await api.post('/auth/login', { email, password });
+  const login = async (username: string, password: string) => {
+    const r = await api.post('/auth/login', { username, password });
     await setAuthToken(r.data.access_token);
     setUser(r.data.user);
   };

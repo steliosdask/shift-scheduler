@@ -6,13 +6,13 @@ import requests
 BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://doctor-duty-planner.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 
-CHIEF_EMAIL = "chief@hospital.gr"
-CHIEF_PASSWORD = "chief2026"
+CHIEF_USERNAME = os.environ.get("ADMIN_USERNAME", "chief").strip().lower()
+CHIEF_PASSWORD = os.environ.get("ADMIN_PASSWORD", "chief2026")
 
 
 @pytest.fixture(scope="session")
 def token():
-    r = requests.post(f"{API}/auth/login", json={"email": CHIEF_EMAIL, "password": CHIEF_PASSWORD})
+    r = requests.post(f"{API}/auth/login", json={"username": CHIEF_USERNAME, "password": CHIEF_PASSWORD})
     assert r.status_code == 200, f"login failed: {r.status_code} {r.text}"
     data = r.json()
     assert "access_token" in data and "user" in data
@@ -27,14 +27,14 @@ def headers(token):
 # ---- Auth ----
 class TestAuth:
     def test_login_success(self):
-        r = requests.post(f"{API}/auth/login", json={"email": CHIEF_EMAIL, "password": CHIEF_PASSWORD})
+        r = requests.post(f"{API}/auth/login", json={"username": CHIEF_USERNAME, "password": CHIEF_PASSWORD})
         assert r.status_code == 200
         body = r.json()
-        assert body["user"]["email"] == CHIEF_EMAIL
+        assert body["user"]["username"] == CHIEF_USERNAME
         assert body["user"]["role"] == "chief"
 
     def test_login_wrong_password_greek(self):
-        r = requests.post(f"{API}/auth/login", json={"email": CHIEF_EMAIL, "password": "wrong"})
+        r = requests.post(f"{API}/auth/login", json={"username": CHIEF_USERNAME, "password": "wrong"})
         assert r.status_code == 401
         detail = r.json().get("detail", "")
         assert "Λάθος" in detail or "κωδικός" in detail
@@ -46,7 +46,7 @@ class TestAuth:
     def test_me_returns_user(self, headers):
         r = requests.get(f"{API}/auth/me", headers=headers)
         assert r.status_code == 200
-        assert r.json()["email"] == CHIEF_EMAIL
+        assert r.json()["username"] == CHIEF_USERNAME
 
 
 # ---- Doctors ----

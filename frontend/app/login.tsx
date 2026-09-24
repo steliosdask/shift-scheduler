@@ -20,8 +20,8 @@ import { formatApiError } from '../lib/api';
 export default function Login() {
   const { login } = useAuth();
   const router = useRouter();
-  const [email, setEmail] = useState('chief@hospital.gr');
-  const [password, setPassword] = useState('chief2026');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -29,7 +29,7 @@ export default function Login() {
     setError('');
     setLoading(true);
     try {
-      await login(email.trim(), password);
+      await login(username.trim(), password);
       router.replace('/(app)/dashboard');
     } catch (e) {
       setError(formatApiError(e));
@@ -55,15 +55,14 @@ export default function Login() {
 
           <View style={styles.card}>
             <Text style={styles.h2}>Σύνδεση Χρήστη</Text>
-            <Text style={styles.label}>Email</Text>
+            <Text style={styles.label}>Όνομα χρήστη</Text>
             <TextInput
-              testID="login-email-input"
+              testID="login-username-input"
               style={styles.input}
-              value={email}
-              onChangeText={setEmail}
+              value={username}
+              onChangeText={setUsername}
               autoCapitalize="none"
-              keyboardType="email-address"
-              placeholder="chief@hospital.gr"
+              autoCorrect={false}
               placeholderTextColor={Theme.colors.textDisabled}
             />
             <Text style={styles.label}>Κωδικός</Text>
@@ -95,7 +94,6 @@ export default function Login() {
                 <Text style={styles.ctaText}>Σύνδεση</Text>
               )}
             </TouchableOpacity>
-            <Text style={styles.hint}>Demo: chief@hospital.gr / chief2026</Text>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -165,5 +163,4 @@ const styles = StyleSheet.create({
     marginTop: Theme.spacing.lg,
   },
   ctaText: { color: Theme.colors.textInverse, fontSize: 16, fontWeight: '700', letterSpacing: 0.3 },
-  hint: { fontSize: 11, color: Theme.colors.textDisabled, textAlign: 'center', marginTop: 12 },
 });
