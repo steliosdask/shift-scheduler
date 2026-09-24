@@ -65,7 +65,6 @@ class LoginIn(BaseModel):
 class UserOut(BaseModel):
     id: str
     email: str
-    name: str
     role: str
 
 
@@ -150,7 +149,6 @@ async def login(data: LoginIn):
         "user": {
             "id": user["id"],
             "email": user["email"],
-            "name": user["name"],
             "role": user["role"],
         },
     }
@@ -494,7 +492,6 @@ async def startup():
                 "id": str(uuid.uuid4()),
                 "email": admin_email,
                 "password_hash": hash_password(admin_password),
-                "name": "Διευθυντής",
                 "role": "chief",
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }

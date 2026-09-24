@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { api, getAuthToken, setAuthToken, clearAuthToken } from './api';
 
-type User = { id: string; email: string; name: string; role: string };
+type User = { id: string; email: string; role: string };
 
 type AuthCtx = {
   user: User | null | undefined; // undefined=loading, null=not-authed
