@@ -8,6 +8,8 @@ import {
   ActivityIndicator,
   RefreshControl,
   Alert,
+  Modal,
+  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,6 +18,7 @@ import { Theme, GREEK_MONTHS } from '../../constants/Theme';
 import { api, formatApiError } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { confirmAction } from '../../lib/confirm';
+import { SCHEDULE_RULES } from '../../constants/rules';
 
 type Schedule = {
   id: string;
@@ -33,6 +36,7 @@ export default function Dashboard() {
   const [doctorsCount, setDoctorsCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [showRules, setShowRules] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -83,10 +87,39 @@ export default function Dashboard() {
           <Text style={styles.eyebrow}>Καλώς ήρθατε</Text>
           <Text style={styles.title}>{user?.username}</Text>
         </View>
+        <TouchableOpacity onPress={() => setShowRules(true)} style={[styles.iconBtn, { marginRight: 8 }]}>
+          <Ionicons name="information-circle-outline" size={22} color={Theme.colors.textPrimary} />
+        </TouchableOpacity>
         <TouchableOpacity onPress={logout} style={styles.iconBtn}>
           <Ionicons name="log-out-outline" size={22} color={Theme.colors.textPrimary} />
         </TouchableOpacity>
       </View>
+
+      <Modal visible={showRules} transparent animationType="slide" onRequestClose={() => setShowRules(false)}>
+        <View style={{ flex: 1, justifyContent: 'flex-end' }}>
+          <TouchableOpacity activeOpacity={1} style={styles.modalBackdrop} onPress={() => setShowRules(false)} />
+          <View style={styles.sheet}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.sheetTitle}>Κανόνες Προγράμματος</Text>
+            <ScrollView style={{ maxHeight: 460, marginTop: Theme.spacing.sm }}>
+              {SCHEDULE_RULES.map((section) => (
+                <View key={section.title} style={{ marginBottom: Theme.spacing.md }}>
+                  <Text style={styles.rulesHeading}>{section.title}</Text>
+                  {section.items.map((item) => (
+                    <View key={item} style={styles.ruleRow}>
+                      <Text style={styles.ruleBullet}>•</Text>
+                      <Text style={styles.ruleText}>{item}</Text>
+                    </View>
+                  ))}
+                </View>
+              ))}
+            </ScrollView>
+            <TouchableOpacity style={styles.sheetClose} onPress={() => setShowRules(false)} activeOpacity={0.85}>
+              <Text style={styles.ctaText}>Κλείσιμο</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       <View style={styles.statsRow}>
         <View style={styles.statCard}>
@@ -279,4 +312,39 @@ const styles = StyleSheet.create({
   badgeText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
   badgeTextOk: { color: Theme.colors.okText },
   badgeTextDraft: { color: Theme.colors.textSecondary },
+  modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: Theme.colors.overlay },
+  sheet: {
+    backgroundColor: Theme.colors.surface,
+    padding: Theme.spacing.lg,
+    paddingBottom: Theme.spacing.xl,
+    borderTopLeftRadius: Theme.radius.lg,
+    borderTopRightRadius: Theme.radius.lg,
+  },
+  modalHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: Theme.colors.border,
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: Theme.spacing.md,
+  },
+  sheetTitle: { fontSize: 18, fontWeight: '700', color: Theme.colors.textPrimary },
+  rulesHeading: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: Theme.colors.textSecondary,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    marginBottom: 6,
+  },
+  ruleRow: { flexDirection: 'row', gap: 8, marginBottom: 6 },
+  ruleBullet: { fontSize: 14, color: Theme.colors.textSecondary, lineHeight: 20 },
+  ruleText: { flex: 1, fontSize: 14, color: Theme.colors.textPrimary, lineHeight: 20 },
+  sheetClose: {
+    backgroundColor: Theme.colors.brand,
+    borderRadius: Theme.radius.md,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: Theme.spacing.sm,
+  },
 });
