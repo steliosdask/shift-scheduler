@@ -145,11 +145,6 @@ async def me(current: dict = Depends(get_current_user)):
     return current
 
 
-@api.post("/auth/logout")
-async def logout(current: dict = Depends(get_current_user)):
-    return {"ok": True}
-
-
 # ----- Doctors -----
 @api.get("/doctors")
 async def list_doctors(current: dict = Depends(get_current_user)):

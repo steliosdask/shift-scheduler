@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { api, getAuthToken, setAuthToken, clearAuthToken } from './api';
+import { api, getAuthToken, saveSession, cacheUser, getCachedUser, clearSession } from './api';
 
 type User = { id: string; username: string; role: string };
 
@@ -18,30 +18,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     (async () => {
-      const t = await getAuthToken();
-      if (!t) {
+      if (!(await getAuthToken())) {
         setUser(null);
         return;
       }
       try {
         const r = await api.get('/auth/me');
+        await cacheUser(r.data);
         setUser(r.data);
-      } catch {
-        await clearAuthToken();
-        setUser(null);
+      } catch (e: any) {
+        // A 401 means the session is over (the api interceptor already cleared it).
+        // Any other failure means the server is unreachable, so stay signed in.
+        setUser(e?.response?.status === 401 ? null : await getCachedUser());
       }
     })();
   }, []);
 
   const login = async (username: string, password: string) => {
     const r = await api.post('/auth/login', { username, password });
-    await setAuthToken(r.data.access_token);
+    await saveSession(r.data.access_token, r.data.user);
     setUser(r.data.user);
   };
 
   const logout = async () => {
-    try { await api.post('/auth/logout'); } catch {}
-    await clearAuthToken();
+    await clearSession();
     setUser(null);
   };
 

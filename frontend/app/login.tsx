@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -24,6 +24,17 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [slow, setSlow] = useState(false);
+
+  // The free server may be waking up; tell the user after a few seconds.
+  useEffect(() => {
+    if (!loading) {
+      setSlow(false);
+      return;
+    }
+    const timer = setTimeout(() => setSlow(true), 5000);
+    return () => clearTimeout(timer);
+  }, [loading]);
 
   const onSubmit = async () => {
     setError('');
@@ -91,6 +102,7 @@ export default function Login() {
                 <Text style={styles.ctaText}>Σύνδεση</Text>
               )}
             </TouchableOpacity>
+            {slow ? <Text style={styles.slowHint}>Ο server ξεκινά, αυτό μπορεί να πάρει έως ένα λεπτό…</Text> : null}
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -160,4 +172,5 @@ const styles = StyleSheet.create({
     marginTop: Theme.spacing.lg,
   },
   ctaText: { color: Theme.colors.textInverse, fontSize: 16, fontWeight: '700', letterSpacing: 0.3 },
+  slowHint: { fontSize: 13, color: Theme.colors.textSecondary, textAlign: 'center', marginTop: Theme.spacing.md },
 });
