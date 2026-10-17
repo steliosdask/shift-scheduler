@@ -1,5 +1,9 @@
 """Monthly on-call schedule generation and validation.
 
+Positive days come first: a doctor who declares positive days for the month
+works exactly those days (always as one of the two doctors of an open day) and
+nothing else. They override every other rule for that doctor.
+
 Hard rules (never broken by the generator):
   - An open day needs 2 doctors, a closed day needs 1.
   - A doctor needs at least 3 free days between two shifts.
@@ -10,11 +14,12 @@ Preferences (reported as warnings when not met):
   - Negative days are avoided, unless there is no other way to fill the month.
   - Weekends/holidays and shift counts are spread evenly.
 
-Generation first searches for a schedule that respects every negative day.
-If none exists, it searches again allowing negative days, keeping the solution
-with the fewest of them. Each search is a time-limited backtracking search
-(most-constrained slot first, with forward checking). If nothing complete is
-found in time, a greedy partial schedule is returned instead.
+Generation locks the positive days, then searches for a schedule for the
+remaining slots that respects every negative day. If none exists, it searches
+again allowing negative days, keeping the solution with the fewest of them.
+Each search is a time-limited backtracking search (most-constrained slot
+first, with forward checking). If nothing complete is found in time, a greedy
+partial schedule is returned instead.
 """
 import random
 import time
@@ -23,6 +28,7 @@ from typing import Optional
 
 MIN_GAP_DAYS = 4  # 3 free days between shifts
 MAX_NEGATIVE_DAYS = 5  # more than this per doctor triggers a warning
+MAX_POSITIVE_DAYS = 6  # hard limit, enforced when the schedule is saved
 MAX_PAID_HOLIDAYS = 2  # holidays beyond this are not paid double
 NEGATIVE_DAY_PENALTY = 1000  # outweighs any balance difference when scoring
 TIME_BUDGET_SECONDS = 15.0
@@ -30,12 +36,6 @@ TIME_BUDGET_SECONDS = 15.0
 
 def required_doctors(day_type: str) -> int:
     return 2 if day_type == "open" else 1
-
-
-def target_shifts(days: list[dict], n_doctors: int) -> int:
-    """Average number of shifts per doctor for the month."""
-    total_slots = sum(required_doctors(d["type"]) for d in days)
-    return max(1, round(total_slots / n_doctors)) if n_doctors else 0
 
 
 def on_leave(doctor: dict, d: date) -> bool:
@@ -49,8 +49,36 @@ def is_negative_day(doctor: dict, d: date) -> bool:
     return d.isoformat() in doctor.get("negative_days", [])
 
 
+def is_positive_day(doctor: dict, d: date) -> bool:
+    return d.isoformat() in doctor.get("positive_days", [])
+
+
+def has_positive_days(doctor: dict) -> bool:
+    return bool(doctor.get("positive_days"))
+
+
 def can_work(doctor: dict, d: date, allow_negative: bool) -> bool:
     return not on_leave(doctor, d) and (allow_negative or not is_negative_day(doctor, d))
+
+
+def locked_doctors(days: list[dict], doctors: list[dict]) -> dict[str, list[str]]:
+    """Doctors fixed on each date by their positive days."""
+    locked = {dd["date"]: [] for dd in days}
+    for doc in doctors:
+        for d_iso in doc.get("positive_days", []):
+            if d_iso in locked:
+                locked[d_iso].append(doc["id"])
+    return locked
+
+
+def open_slots(days: list[dict], locked: dict[str, list[str]]) -> dict[str, int]:
+    """Slots per date still to be filled by regular doctors."""
+    return {dd["date"]: max(0, required_doctors(dd["type"]) - len(locked[dd["date"]])) for dd in days}
+
+
+def target_shifts(slots: dict[str, int], n_doctors: int) -> int:
+    """Average number of shifts per regular doctor for the month."""
+    return max(1, round(sum(slots.values()) / n_doctors)) if n_doctors else 0
 
 
 # ---------- Validation ----------
@@ -65,8 +93,10 @@ def validate_assignment(schedule_dates: list[dict], doctors: list[dict]) -> dict
     }
     doc_map = {d["id"]: d for d in doctors}
     doc_dates: dict[str, list[date]] = {d["id"]: [] for d in doctors}
+    regular = [d for d in doctors if not has_positive_days(d)]
 
-    target = target_shifts(schedule_dates, len(doctors))
+    locked = locked_doctors(schedule_dates, doctors)
+    target = target_shifts(open_slots(schedule_dates, locked), len(regular))
 
     def add_hard(d_iso: str, issue: dict):
         per_day[d_iso]["hard"].append(issue)
@@ -91,6 +121,14 @@ def validate_assignment(schedule_dates: list[dict], doctors: list[dict]) -> dict
                 "msg": f"Λάθος αριθμός γιατρών: απαιτούνται {required}, βρέθηκαν {len(assigned)}",
             })
 
+        for did in locked[d_iso]:
+            if did not in assigned:
+                add_hard(d_iso, {
+                    "code": "HC6",
+                    "msg": f"Ο/Η {doc_map[did]['full_name']} λείπει από θετική του/της ημέρα ({d_iso})",
+                    "doctor_id": did,
+                })
+
         for did in assigned:
             if did not in doc_map:
                 continue
@@ -101,7 +139,15 @@ def validate_assignment(schedule_dates: list[dict], doctors: list[dict]) -> dict
                 per_doctor_stats[did]["weekends"] += 1
             if is_hol:
                 per_doctor_stats[did]["holidays"] += 1
-            if on_leave(doc, d):
+            if is_positive_day(doc, d):
+                continue  # positive days override leaves and negative days
+            if has_positive_days(doc):
+                add_hard(d_iso, {
+                    "code": "HC7",
+                    "msg": f"Ο/Η {doc['full_name']} έχει θετικές ημέρες και δεν εφημερεύει άλλες ({d_iso})",
+                    "doctor_id": did,
+                })
+            elif on_leave(doc, d):
                 add_hard(d_iso, {
                     "code": "HC4",
                     "msg": f"Ο/Η {doc['full_name']} είναι σε άδεια ({d_iso})",
@@ -117,7 +163,15 @@ def validate_assignment(schedule_dates: list[dict], doctors: list[dict]) -> dict
         if len(set(assigned)) != len(assigned):
             add_hard(d_iso, {"code": "DUP", "msg": "Ο ίδιος γιατρός εμφανίζεται δύο φορές την ίδια ημέρα"})
 
+        if locked[d_iso] and not any(did in doc_map and not has_positive_days(doc_map[did]) for did in assigned):
+            add_hard(d_iso, {
+                "code": "HC8",
+                "msg": "Σε θετική ημέρα πρέπει να εφημερεύει και ένας γιατρός χωρίς θετικές ημέρες",
+            })
+
     for did, dates in doc_dates.items():
+        if has_positive_days(doc_map[did]):
+            continue  # positive days may be as close as the doctor chose
         dates = sorted(dates)
         for prev, cur in zip(dates, dates[1:]):
             gap = (cur - prev).days
@@ -128,7 +182,7 @@ def validate_assignment(schedule_dates: list[dict], doctors: list[dict]) -> dict
                     "doctor_id": did,
                 })
 
-    weekend_counts = [s["weekends"] for s in per_doctor_stats.values()]
+    weekend_counts = [per_doctor_stats[d["id"]]["weekends"] for d in regular]
     if weekend_counts and max(weekend_counts) - min(weekend_counts) > 1:
         soft.append({"code": "SC5", "msg": "Άνιση κατανομή Σ/Κ μεταξύ γιατρών (διαφορά > 1)"})
 
@@ -139,7 +193,7 @@ def validate_assignment(schedule_dates: list[dict], doctors: list[dict]) -> dict
                 f"Η {MAX_PAID_HOLIDAYS + 1}η+ αργία δεν πληρώνεται διπλά."
             )
             soft.append({"code": "SC1", "msg": msg, "doctor_id": did})
-        if abs(stats["shifts"] - target) > 1:
+        if not has_positive_days(doc_map[did]) and abs(stats["shifts"] - target) > 1:
             msg = f"Ο/Η {stats['name']} έχει {stats['shifts']} εφημερίες (στόχος {target})"
             soft.append({"code": "SC2", "msg": msg, "doctor_id": did})
         nd = len(doc_map[did].get("negative_days", []))
@@ -157,7 +211,9 @@ def validate_assignment(schedule_dates: list[dict], doctors: list[dict]) -> dict
 
 # ---------- Generation ----------
 
-def feasibility_issues(days_sorted: list[dict], doctors: list[dict], allow_negative: bool) -> list[str]:
+def feasibility_issues(
+    days_sorted: list[dict], regular: list[dict], slots: dict[str, int], allow_negative: bool
+) -> list[str]:
     """Cheap checks that rule out impossible months before searching.
 
     Only the check with allow_negative=True is shown to the user (leaves are the
@@ -167,8 +223,8 @@ def feasibility_issues(days_sorted: list[dict], doctors: list[dict], allow_negat
 
     for dd in days_sorted:
         d = date.fromisoformat(dd["date"])
-        required = required_doctors(dd["type"])
-        available = sum(1 for doc in doctors if can_work(doc, d, allow_negative))
+        required = slots[dd["date"]]
+        available = sum(1 for doc in regular if can_work(doc, d, allow_negative))
         if available < required:
             issues.append(
                 f"Η ημερομηνία {dd['date']} χρειάζεται {required} γιατρ"
@@ -176,11 +232,11 @@ def feasibility_issues(days_sorted: list[dict], doctors: list[dict], allow_negat
                 f"είναι διαθέσιμοι (μη σε άδεια)."
             )
 
-    total_demand = sum(required_doctors(d["type"]) for d in days_sorted)
+    total_demand = sum(slots.values())
     # Because of the minimum gap, one doctor can cover at most every 4th day.
     max_per_doctor = (len(days_sorted) + MIN_GAP_DAYS - 1) // MIN_GAP_DAYS
     total_capacity = 0
-    for doc in doctors:
+    for doc in regular:
         available_days = sum(
             1 for dd in days_sorted if can_work(doc, date.fromisoformat(dd["date"]), allow_negative)
         )
@@ -206,9 +262,12 @@ def generate_schedule(
     An infeasible month has no schedule, only the reason and suggestions.
     """
     days_sorted = sorted(day_definitions, key=lambda x: x["date"])
+    regular = [d for d in doctors if not has_positive_days(d)]
+    locked = locked_doctors(days_sorted, doctors)
+    slots = open_slots(days_sorted, locked)
 
     # Negative days are only preferences, so only leaves can make a month impossible.
-    issues = feasibility_issues(days_sorted, doctors, allow_negative=True)
+    issues = feasibility_issues(days_sorted, regular, slots, allow_negative=True)
     if issues:
         return {
             "schedule": None,
@@ -227,7 +286,7 @@ def generate_schedule(
             entry["is_weekend"], entry["is_holiday"] = flag_map.get(entry["date"], (False, False))
         return result
 
-    target = target_shifts(days_sorted, len(doctors))
+    target = target_shifts(slots, len(regular))
     start = time.monotonic()
 
     def search(allow_negative: bool, until: float) -> Optional[list[dict]]:
@@ -238,11 +297,11 @@ def generate_schedule(
         while time.monotonic() < until:
             random.seed(attempt)
             attempt += 1
-            result = backtracking_search(days_sorted, doctors, until, allow_negative)
+            result = backtracking_search(days_sorted, regular, locked, slots, until, allow_negative)
             if result is None:
                 continue
             attach_flags(result)
-            score = score_solution(result, target, doctors)
+            score = score_solution(result, target, regular)
             if score < best_score:
                 best_score = score
                 best_solution = result
@@ -251,7 +310,7 @@ def generate_schedule(
         return best_solution
 
     best = None
-    if not feasibility_issues(days_sorted, doctors, allow_negative=False):
+    if not feasibility_issues(days_sorted, regular, slots, allow_negative=False):
         best = search(allow_negative=False, until=start + time_budget_seconds * 0.6)
     if best is None:
         best = search(allow_negative=True, until=start + time_budget_seconds)
@@ -259,7 +318,7 @@ def generate_schedule(
     if best is not None:
         return {"schedule": best, "infeasible": False, "reason": None, "suggestions": []}
 
-    partial = attach_flags(greedy_partial(days_sorted, doctors))
+    partial = attach_flags(greedy_partial(days_sorted, regular, locked, slots))
     unfilled = [e["date"] for e in partial if len(e["doctors"]) < required_doctors(e["type"])]
     return {
         "schedule": partial,
@@ -276,15 +335,20 @@ def generate_schedule(
     }
 
 
-def score_solution(result: list[dict], target: int, doctors: list[dict]) -> float:
-    """Lower is better: negative days used, distance from the target, weekend imbalance."""
-    doc_map = {d["id"]: d for d in doctors}
-    stats = {d["id"]: {"shifts": 0, "weekends": 0} for d in doctors}
+def score_solution(result: list[dict], target: int, regular: list[dict]) -> float:
+    """Lower is better: negative days used, distance from the target, weekend imbalance.
+
+    Only regular doctors count; doctors with positive days have a fixed load.
+    """
+    doc_map = {d["id"]: d for d in regular}
+    stats = {d["id"]: {"shifts": 0, "weekends": 0} for d in regular}
     negatives = 0
     for entry in result:
         special = entry.get("is_weekend", False) or entry.get("is_holiday", False)
         d = date.fromisoformat(entry["date"])
         for did in entry["doctors"]:
+            if did not in stats:
+                continue
             stats[did]["shifts"] += 1
             if special:
                 stats[did]["weekends"] += 1
@@ -301,24 +365,28 @@ def score_solution(result: list[dict], target: int, doctors: list[dict]) -> floa
 
 def backtracking_search(
     days_sorted: list[dict],
-    doctors: list[dict],
+    regular: list[dict],
+    locked: dict[str, list[str]],
+    slots_per_day: dict[str, int],
     deadline: float,
     allow_negative: bool,
 ) -> Optional[list[dict]]:
-    doc_map = {doc["id"]: doc for doc in doctors}
+    doc_map = {doc["id"]: doc for doc in regular}
 
-    # One slot per required doctor: (day index, date)
+    # One slot per regular doctor still needed: (day index, date)
     slots: list[tuple[int, date]] = []
     for i, dd in enumerate(days_sorted):
         d = date.fromisoformat(dd["date"])
-        slots.extend((i, d) for _ in range(required_doctors(dd["type"])))
+        slots.extend((i, d) for _ in range(slots_per_day[dd["date"]]))
 
     # Candidate doctors per slot; shrinks as assignments are made.
     domains: list[set[str]] = [
-        {doc["id"] for doc in doctors if can_work(doc, d, allow_negative)} for _, d in slots
+        {doc["id"] for doc in regular if can_work(doc, d, allow_negative)} for _, d in slots
     ]
-    result = [{"date": dd["date"], "type": dd["type"], "doctors": []} for dd in days_sorted]
-    shift_count: dict[str, int] = {doc["id"]: 0 for doc in doctors}
+    result = [
+        {"date": dd["date"], "type": dd["type"], "doctors": list(locked[dd["date"]])} for dd in days_sorted
+    ]
+    shift_count: dict[str, int] = {doc["id"]: 0 for doc in regular}
     assigned: set[int] = set()
 
     def pick_next_slot() -> int:
@@ -383,18 +451,23 @@ def backtracking_search(
     return result if backtrack() else None
 
 
-def greedy_partial(days_sorted: list[dict], doctors: list[dict]) -> list[dict]:
+def greedy_partial(
+    days_sorted: list[dict],
+    regular: list[dict],
+    locked: dict[str, list[str]],
+    slots_per_day: dict[str, int],
+) -> list[dict]:
     """Fill each day with the least-used available doctors, leaving gaps when stuck.
 
     Negative days are used only when a day cannot be filled otherwise.
     """
-    doc_assignments: dict[str, list[date]] = {d["id"]: [] for d in doctors}
+    doc_assignments: dict[str, list[date]] = {d["id"]: [] for d in regular}
     result: list[dict] = []
     random.seed(0)
     for dd in days_sorted:
         d = date.fromisoformat(dd["date"])
-        n_required = required_doctors(dd["type"])
-        candidates = sorted(doctors, key=lambda x: (len(doc_assignments[x["id"]]), random.random()))
+        n_required = slots_per_day[dd["date"]]
+        candidates = sorted(regular, key=lambda x: (len(doc_assignments[x["id"]]), random.random()))
         chosen: list[str] = []
         for allow_negative in (False, True):
             for doc in candidates:
@@ -406,5 +479,5 @@ def greedy_partial(days_sorted: list[dict], doctors: list[dict]) -> list[dict]:
                     continue
                 chosen.append(doc["id"])
                 doc_assignments[doc["id"]].append(d)
-        result.append({"date": dd["date"], "type": dd["type"], "doctors": chosen})
+        result.append({"date": dd["date"], "type": dd["type"], "doctors": list(locked[dd["date"]]) + chosen})
     return result

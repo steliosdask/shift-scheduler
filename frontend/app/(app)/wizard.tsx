@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { Theme, GREEK_MONTHS, GREEK_DAYS_SHORT } from '../../constants/Theme';
 import { api, formatApiError } from '../../lib/api';
+import { MAX_POSITIVE_DAYS } from '../../constants/rules';
 
 const STEPS = ['Μήνας', 'Γιατροί', 'Ημέρες', 'Άδειες'];
 
@@ -30,6 +31,7 @@ type Constraint = {
   doctor_id: string;
   is_participating: boolean;
   negative_days: string[];
+  positive_days: string[];
   leaves: Leave[];
 };
 
@@ -63,7 +65,7 @@ export default function Wizard() {
   const [constraints, setConstraints] = useState<Constraint[]>([]);
   const [activeDoctor, setActiveDoctor] = useState<string>('');
   const [step3Mode, setStep3Mode] = useState<'shift' | 'holiday'>('shift');
-  const [step4Mode, setStep4Mode] = useState<'negative' | 'leave'>('negative');
+  const [step4Mode, setStep4Mode] = useState<'negative' | 'positive' | 'leave'>('negative');
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
 
@@ -83,6 +85,7 @@ export default function Wizard() {
             doctor_id: doc.id,
             is_participating: doc.is_active,
             negative_days: [],
+            positive_days: [],
             leaves: [],
           }))
         );
@@ -96,7 +99,25 @@ export default function Wizard() {
 
   useEffect(() => {
     setDays(buildDefaultDays(year, month));
+    // Dates picked for another month no longer apply.
+    setConstraints((prev) => prev.map((c) => ({ ...c, negative_days: [], positive_days: [], leaves: [] })));
   }, [year, month]);
+
+  const doctorName = (id: string) => doctors.find((d) => d.id === id)?.full_name || '';
+
+  const positiveOwner = (date: string) =>
+    constraints.find((c) => c.is_participating && c.positive_days.includes(date));
+
+  // A positive day must stay an open day (2 doctors).
+  const blockedByPositive = (date: string) => {
+    const owner = positiveOwner(date);
+    if (!owner) return false;
+    Alert.alert(
+      'Θετική ημέρα',
+      `Η ${parseInt(date.slice(8), 10)}η είναι θετική ημέρα για τον/την ${doctorName(owner.doctor_id)} και πρέπει να μείνει ανοιχτή εφημερία.`
+    );
+    return true;
+  };
 
   const toggleParticipation = (id: string) => {
     setConstraints((prev) =>
@@ -105,6 +126,7 @@ export default function Wizard() {
   };
 
   const toggleDayType = (date: string) => {
+    if (days.find((d) => d.date === date)?.type === 'open' && blockedByPositive(date)) return;
     setDays((prev) =>
       prev.map((d) => (d.date === date ? { ...d, type: d.type === 'open' ? 'closed' : 'open' } : d))
     );
@@ -117,6 +139,8 @@ export default function Wizard() {
   };
 
   const setAllAlternating = (startOpen: boolean) => {
+    const closing = days.find((d, i) => (i % 2 === 0) !== startOpen && positiveOwner(d.date));
+    if (closing && blockedByPositive(closing.date)) return;
     setDays((prev) =>
       prev.map((d, i) => ({ ...d, type: (i % 2 === 0) === startOpen ? 'open' : 'closed' }))
     );
@@ -130,6 +154,41 @@ export default function Wizard() {
         return {
           ...c,
           negative_days: has ? c.negative_days.filter((x) => x !== date) : [...c.negative_days, date],
+        };
+      })
+    );
+  };
+
+  const togglePositiveDay = (doctorId: string, date: string) => {
+    const c = constraints.find((x) => x.doctor_id === doctorId);
+    if (!c) return;
+    if (!c.positive_days.includes(date)) {
+      const owner = positiveOwner(date);
+      if (days.find((d) => d.date === date)?.type !== 'open') {
+        Alert.alert('Θετική ημέρα', 'Οι θετικές ημέρες πρέπει να είναι ανοιχτές εφημερίες (2 γιατροί).');
+        return;
+      }
+      if (owner) {
+        Alert.alert('Θετική ημέρα', `Η ημέρα είναι ήδη θετική για τον/την ${doctorName(owner.doctor_id)}.`);
+        return;
+      }
+      if (c.positive_days.length >= MAX_POSITIVE_DAYS) {
+        Alert.alert('Θετική ημέρα', `Έως ${MAX_POSITIVE_DAYS} θετικές ημέρες ανά γιατρό.`);
+        return;
+      }
+    }
+    setConstraints((prev) =>
+      prev.map((x) => {
+        if (x.doctor_id !== doctorId) return x;
+        if (x.positive_days.includes(date)) {
+          return { ...x, positive_days: x.positive_days.filter((d) => d !== date) };
+        }
+        // A positive day replaces a negative day or leave on the same date.
+        return {
+          ...x,
+          positive_days: [...x.positive_days, date],
+          negative_days: x.negative_days.filter((d) => d !== date),
+          leaves: x.leaves.filter((l) => !(l.start_date === date && l.end_date === date)),
         };
       })
     );
@@ -179,6 +238,9 @@ export default function Wizard() {
   const activeCount = constraints.filter((c) => c.is_participating).length;
   const monthNumDays = days.length;
   const activeConstraint = constraints.find((c) => c.doctor_id === activeDoctor);
+  const otherPositiveDates = constraints
+    .filter((c) => c.is_participating && c.doctor_id !== activeDoctor)
+    .flatMap((c) => c.positive_days);
   const leaveDates = (activeConstraint?.leaves || [])
     .filter((l) => l.start_date === l.end_date)
     .map((l) => l.start_date);
@@ -371,9 +433,9 @@ export default function Wizard() {
 
         {step === 3 && (
           <View>
-            <Text style={styles.h2}>Αρνητικές Ημέρες & Άδειες</Text>
+            <Text style={styles.h2}>Αρνητικές, Θετικές & Άδειες</Text>
             <Text style={styles.help}>
-              Επιλέξτε γιατρό και πατήστε στις ημέρες που δεν είναι διαθέσιμος/η.
+              Επιλέξτε γιατρό και σημειώστε τις αρνητικές, θετικές ή ημέρες άδειάς του/της.
             </Text>
             <View style={styles.chipsWrap}>
               {constraints
@@ -381,7 +443,7 @@ export default function Wizard() {
                 .map((c) => {
                   const doc = doctors.find((d) => d.id === c.doctor_id)!;
                   const isActive = activeDoctor === c.doctor_id;
-                  const total = c.negative_days.length + c.leaves.length;
+                  const total = c.negative_days.length + c.positive_days.length + c.leaves.length;
                   return (
                     <TouchableOpacity
                       key={c.doctor_id}
@@ -421,7 +483,28 @@ export default function Wizard() {
                         step4Mode === 'negative' && styles.modeTextActive,
                       ]}
                     >
-                      Αρνητικές Ημέρες ({activeConstraint?.negative_days.length || 0})
+                      Αρνητικές ({activeConstraint?.negative_days.length || 0})
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => setStep4Mode('positive')}
+                    style={[
+                      styles.modeBtn,
+                      step4Mode === 'positive' && styles.modeBtnPositive,
+                    ]}
+                  >
+                    <Ionicons
+                      name="checkmark-circle-outline"
+                      size={16}
+                      color={step4Mode === 'positive' ? Theme.colors.textInverse : Theme.colors.okText}
+                    />
+                    <Text
+                      style={[
+                        styles.modeText,
+                        step4Mode === 'positive' && styles.modeTextActive,
+                      ]}
+                    >
+                      Θετικές ({activeConstraint?.positive_days.length || 0}/{MAX_POSITIVE_DAYS})
                     </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
@@ -450,6 +533,8 @@ export default function Wizard() {
                 <Text style={styles.modeHelp}>
                   {step4Mode === 'negative'
                     ? 'Αρνητικές: ημέρες που ο γιατρός θα προτιμούσε να μην εφημερεύσει. Αν δεν γίνεται αλλιώς, θα μπει και η ημέρα θα σημειωθεί με προειδοποίηση.'
+                    : step4Mode === 'positive'
+                    ? `Θετικές: οι μόνες ημέρες που θα εφημερεύσει ο γιατρός (έως ${MAX_POSITIVE_DAYS}, μόνο ανοιχτές εφημερίες). Υπερισχύουν όλων των άλλων κανόνων.`
                     : 'Άδειες: ημέρες κανονικής άδειας — ο γιατρός δεν μπορεί να εφημερεύσει.'}
                 </Text>
 
@@ -467,13 +552,17 @@ export default function Wizard() {
                     days={days}
                     holidays={holidays}
                     negativeDays={step4Mode === 'negative' ? activeConstraint?.negative_days || [] : []}
+                    positiveDays={step4Mode === 'positive' ? activeConstraint?.positive_days || [] : []}
+                    takenDays={step4Mode === 'positive' ? otherPositiveDates : []}
                     leaveDays={step4Mode === 'leave' ? leaveDates : []}
                     onPressDay={(d) =>
                       step4Mode === 'negative'
                         ? toggleNegativeDay(activeDoctor, d)
+                        : step4Mode === 'positive'
+                        ? togglePositiveDay(activeDoctor, d)
                         : toggleLeaveDay(activeDoctor, d)
                     }
-                    mode={step4Mode === 'negative' ? 'negative' : 'leave'}
+                    mode={step4Mode}
                   />
                 </View>
               </>
@@ -521,6 +610,8 @@ function DayCalendarGrid({
   days,
   holidays,
   negativeDays = [],
+  positiveDays = [],
+  takenDays = [],
   leaveDays = [],
   onPressDay,
   mode,
@@ -530,9 +621,11 @@ function DayCalendarGrid({
   days: DayDef[];
   holidays: Record<string, string>;
   negativeDays?: string[];
+  positiveDays?: string[];
+  takenDays?: string[];
   leaveDays?: string[];
   onPressDay: (date: string) => void;
-  mode: 'shift-green-red' | 'holiday' | 'negative' | 'leave';
+  mode: 'shift-green-red' | 'holiday' | 'negative' | 'positive' | 'leave';
 }) {
   const first = new Date(year, month - 1, 1);
   const leading = first.getDay();
@@ -592,6 +685,25 @@ function DayCalendarGrid({
               cellBg = isNeg ? Theme.colors.hardBg : isHoliday ? Theme.colors.softBg : Theme.colors.surface;
               if (isNeg) {
                 icon = <Ionicons name="close-circle" size={14} color={Theme.colors.hardBorder} />;
+              }
+            } else if (mode === 'positive') {
+              // Only open days can be positive; days taken by another doctor are locked.
+              const isPositive = positiveDays.includes(d.date);
+              const isTaken = takenDays.includes(d.date);
+              cellBg = isPositive
+                ? Theme.colors.okBg
+                : isTaken || d.type !== 'open'
+                ? Theme.colors.surfaceRaised
+                : isHoliday
+                ? Theme.colors.softBg
+                : Theme.colors.surface;
+              if (isPositive) {
+                icon = <Ionicons name="checkmark-circle" size={14} color={Theme.colors.okBorder} />;
+              } else if (isTaken) {
+                icon = <Ionicons name="lock-closed" size={10} color={Theme.colors.textDisabled} />;
+              } else if (d.type !== 'open') {
+                labelChar = 'Κ';
+                labelColor = Theme.colors.textDisabled;
               }
             } else {
               cellBg = isLeave ? Theme.colors.pagniBg : isHoliday ? Theme.colors.softBg : Theme.colors.surface;
@@ -751,6 +863,7 @@ const styles = StyleSheet.create({
   },
   modeBtnActive: { backgroundColor: Theme.colors.brand, borderColor: Theme.colors.brand },
   modeBtnNegative: { backgroundColor: Theme.colors.hardBorder, borderColor: Theme.colors.hardBorder },
+  modeBtnPositive: { backgroundColor: Theme.colors.okText, borderColor: Theme.colors.okText },
   modeBtnLeave: { backgroundColor: Theme.colors.pagniText, borderColor: Theme.colors.pagniText },
   modeText: { fontSize: 13, fontWeight: '700', color: Theme.colors.textPrimary },
   modeTextActive: { color: Theme.colors.textInverse },

@@ -12,7 +12,7 @@
 
 - Κάθε ημέρα του μήνα ορίζεται ως **ανοιχτή** (Νοσοκομείο 1, 2 γιατροί) ή **κλειστή** (Νοσοκομείο 2, 1 γιατρός).
 - Οι επίσημες αργίες σημειώνονται αυτόματα και μπορούν να προστεθούν επιπλέον αργίες.
-- Για κάθε γιατρό δηλώνονται αρνητικές ημέρες (προτίμηση) και άδειες (υποχρεωτικές).
+- Για κάθε γιατρό δηλώνονται αρνητικές ημέρες (προτίμηση), θετικές ημέρες (υποχρεωτικές, έως 6) και άδειες (υποχρεωτικές).
 - Το πρόγραμμα δημιουργείται αυτόματα, με τουλάχιστον 3 ελεύθερες ημέρες μεταξύ δύο εφημεριών του ίδιου γιατρού και ισόποση κατανομή Σαββατοκύριακων και αργιών.
 - Το πρόγραμμα μπορεί να διορθωθεί χειροκίνητα. Η εφαρμογή επισημαίνει όποιον κανόνα παραβιάζεται.
 - Εξαγωγή του μήνα σε PDF (A4, οριζόντιο).
@@ -21,20 +21,21 @@
 
 **Υποχρεωτικοί** (δεν παραβιάζονται ποτέ από την αυτόματη δημιουργία· αν παραβιαστούν χειροκίνητα, η ημέρα γίνεται κόκκινη):
 
-1. Ανοιχτή εφημερία: 2 γιατροί. Κλειστή εφημερία: 1 γιατρός.
-2. Τουλάχιστον 3 ελεύθερες ημέρες ανάμεσα σε δύο εφημερίες του ίδιου γιατρού.
-3. Κανείς δεν εφημερεύει σε ημέρα άδειας.
-4. Ο ίδιος γιατρός δεν μπαίνει δύο φορές την ίδια ημέρα.
+1. Θετικές ημέρες (έως 6 ανά γιατρό): ο γιατρός εφημερεύει μόνο αυτές, πάντα μαζί με δεύτερο γιατρό σε ανοιχτή εφημερία. Υπερισχύουν όλων των άλλων κανόνων (π.χ. μπορούν να απέχουν λιγότερο από 3 ημέρες). Δηλώνονται μόνο σε ανοιχτές εφημερίες και η ίδια ημέρα δεν μπορεί να είναι θετική για δύο γιατρούς.
+2. Ανοιχτή εφημερία: 2 γιατροί. Κλειστή εφημερία: 1 γιατρός.
+3. Τουλάχιστον 3 ελεύθερες ημέρες ανάμεσα σε δύο εφημερίες του ίδιου γιατρού (εκτός από τις θετικές ημέρες).
+4. Κανείς δεν εφημερεύει σε ημέρα άδειας.
+5. Ο ίδιος γιατρός δεν μπαίνει δύο φορές την ίδια ημέρα.
 
 **Προτιμήσεις** (όταν δεν τηρούνται, η εφαρμογή εμφανίζει προειδοποίηση):
 
-5. Οι αρνητικές ημέρες αποφεύγονται. Αν δεν γίνεται αλλιώς, ο γιατρός μπαίνει με όσο το δυνατόν λιγότερες τέτοιες ημέρες και η ημέρα σημειώνεται με κίτρινο.
-6. Σαββατοκύριακα και αργίες μοιράζονται ισόποσα (διαφορά έως 1 μεταξύ γιατρών).
-7. Έως 2 αργίες ανά γιατρό· η 3η και οι επόμενες δεν πληρώνονται διπλά.
-8. Κάθε γιατρός έχει περίπου όσες εφημερίες αναλογούν στον μήνα (±1).
-9. Έως 5 αρνητικές ημέρες ανά γιατρό.
+6. Οι αρνητικές ημέρες αποφεύγονται. Αν δεν γίνεται αλλιώς, ο γιατρός μπαίνει με όσο το δυνατόν λιγότερες τέτοιες ημέρες και η ημέρα σημειώνεται με κίτρινο.
+7. Σαββατοκύριακα και αργίες μοιράζονται ισόποσα (διαφορά έως 1 μεταξύ γιατρών).
+8. Έως 2 αργίες ανά γιατρό· η 3η και οι επόμενες δεν πληρώνονται διπλά.
+9. Κάθε γιατρός έχει περίπου όσες εφημερίες αναλογούν στον μήνα (±1).
+10. Έως 5 αρνητικές ημέρες ανά γιατρό.
 
-**Δημιουργία:** ο αλγόριθμος ψάχνει πρώτα πρόγραμμα που τηρεί όλες τις αρνητικές ημέρες και, μόνο αν αυτό δεν υπάρχει, επιτρέπει όσο το δυνατόν λιγότερες. Ψάχνει έως 15 δευτερόλεπτα το πιο ισορροπημένο πρόγραμμα· αν δεν βρει πλήρη λύση, δίνει μερική που συμπληρώνεται χειροκίνητα. Οι κανόνες εμφανίζονται και μέσα στην εφαρμογή, από το κουμπί ⓘ της αρχικής οθόνης.
+**Δημιουργία:** ο αλγόριθμος τοποθετεί πρώτα τους γιατρούς στις θετικές τους ημέρες. Για τις υπόλοιπες θέσεις ψάχνει πρώτα πρόγραμμα που τηρεί όλες τις αρνητικές ημέρες και, μόνο αν αυτό δεν υπάρχει, επιτρέπει όσο το δυνατόν λιγότερες. Ψάχνει έως 15 δευτερόλεπτα το πιο ισορροπημένο πρόγραμμα· αν δεν βρει πλήρη λύση, δίνει μερική που συμπληρώνεται χειροκίνητα. Οι κανόνες εμφανίζονται και μέσα στην εφαρμογή, από το κουμπί ⓘ της αρχικής οθόνης.
 
 ### Τεχνολογίες
 
@@ -96,7 +97,7 @@ A mobile app for building the monthly on-call schedule of a team of doctors.
 
 - Each day of the month is marked **open** (Hospital 1, 2 doctors) or **closed** (Hospital 2, 1 doctor).
 - Greek public holidays are marked automatically; extra holidays can be added.
-- Negative days (preference) and leaves (mandatory) can be set per doctor.
+- Negative days (preference), positive days (mandatory, up to 6) and leaves (mandatory) can be set per doctor.
 - Automatic schedule generation, with at least 3 free days between two shifts of the same doctor and an even spread of weekends and holidays.
 - Manual editing, with rule violations highlighted.
 - PDF export of the month (A4 landscape).
@@ -105,20 +106,21 @@ A mobile app for building the monthly on-call schedule of a team of doctors.
 
 **Hard rules** (never broken by automatic generation; a day that breaks one after manual editing turns red):
 
-1. Open day: 2 doctors. Closed day: 1 doctor.
-2. At least 3 free days between two shifts of the same doctor.
-3. Nobody works on a day of leave.
-4. Nobody works twice on the same day.
+1. Positive days (up to 6 per doctor): the doctor works only those days, always together with a second doctor on an open day. They override every other rule (e.g. they may be less than 3 days apart). They can only be set on open days, and a day cannot be positive for two doctors.
+2. Open day: 2 doctors. Closed day: 1 doctor.
+3. At least 3 free days between two shifts of the same doctor (except positive days).
+4. Nobody works on a day of leave.
+5. Nobody works twice on the same day.
 
 **Preferences** (the app shows a warning when one is not met):
 
-5. Negative days are avoided. If there is no other way, the doctor is assigned with as few such days as possible and the day is marked yellow.
-6. Weekends and holidays are spread evenly (at most 1 apart between doctors).
-7. At most 2 holidays per doctor; the 3rd and later are not paid double.
-8. Each doctor gets roughly their share of the month's shifts (±1).
-9. At most 5 negative days per doctor.
+6. Negative days are avoided. If there is no other way, the doctor is assigned with as few such days as possible and the day is marked yellow.
+7. Weekends and holidays are spread evenly (at most 1 apart between doctors).
+8. At most 2 holidays per doctor; the 3rd and later are not paid double.
+9. Each doctor gets roughly their share of the month's shifts (±1).
+10. At most 5 negative days per doctor.
 
-**Generation:** the algorithm first looks for a schedule that respects every negative day and only if none exists allows as few as possible. It searches for up to 15 seconds for the most balanced schedule; if no complete solution is found, it returns a partial one to be completed by hand. The rules are also shown in the app, from the ⓘ button on the home screen.
+**Generation:** the algorithm first places doctors on their positive days. For the remaining slots it first looks for a schedule that respects every negative day and only if none exists allows as few as possible. It searches for up to 15 seconds for the most balanced schedule; if no complete solution is found, it returns a partial one to be completed by hand. The rules are also shown in the app, from the ⓘ button on the home screen.
 
 ### Stack
 

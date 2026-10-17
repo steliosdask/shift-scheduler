@@ -19,7 +19,7 @@ load_dotenv(Path(__file__).parent / ".env")
 
 from holidays_gr import get_holidays, is_holiday  # noqa: E402
 from pdf_export import GREEK_MONTHS, build_schedule_pdf  # noqa: E402
-from scheduler import generate_schedule, validate_assignment  # noqa: E402
+from scheduler import MAX_POSITIVE_DAYS, generate_schedule, validate_assignment  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -85,6 +85,7 @@ class DoctorConstraint(BaseModel):
     doctor_id: str
     is_participating: bool = True
     negative_days: List[str] = []
+    positive_days: List[str] = []  # the only days this doctor works, overriding other rules
     leaves: List[dict] = []  # [{start_date, end_date, reason}]
 
 
@@ -241,7 +242,7 @@ async def create_schedule(data: ScheduleCreate, current: dict = Depends(get_curr
         "finalized_at": None,
         "day_definitions": default_day_definitions(data.year, data.month),
         "doctor_constraints": [
-            {"doctor_id": d["id"], "is_participating": True, "negative_days": [], "leaves": []}
+            {"doctor_id": d["id"], "is_participating": True, "negative_days": [], "positive_days": [], "leaves": []}
             for d in doctors
         ],
         "shifts": [],
@@ -255,9 +256,28 @@ async def get_schedule(schedule_id: str, current: dict = Depends(get_current_use
     return await get_schedule_or_404(schedule_id)
 
 
+def check_positive_days(day_definitions: list[dict], constraints: list[dict], doctor_names: dict[str, str]) -> None:
+    """Positive days: at most MAX_POSITIVE_DAYS per doctor, only on open days, one doctor per day."""
+    day_types = {d["date"]: d["type"] for d in day_definitions}
+    taken: dict[str, str] = {}
+    for c in constraints:
+        if not c.get("is_participating"):
+            continue
+        name = doctor_names.get(c["doctor_id"], "Γιατρός")
+        days = c.get("positive_days", [])
+        if len(days) > MAX_POSITIVE_DAYS:
+            raise HTTPException(400, f"Ο/Η {name} έχει {len(days)} θετικές ημέρες (όριο {MAX_POSITIVE_DAYS})")
+        for d_iso in days:
+            if day_types.get(d_iso) != "open":
+                raise HTTPException(400, f"Η θετική ημέρα {d_iso} του/της {name} πρέπει να είναι ανοιχτή εφημερία")
+            if d_iso in taken:
+                raise HTTPException(400, f"Η {d_iso} είναι θετική ημέρα και για τον/την {taken[d_iso]} και για τον/την {name}")
+            taken[d_iso] = name
+
+
 @api.put("/schedules/{schedule_id}")
 async def update_schedule(schedule_id: str, data: ScheduleUpdate, current: dict = Depends(get_current_user)):
-    await get_schedule_or_404(schedule_id)
+    s = await get_schedule_or_404(schedule_id)
     update: dict = {"updated_at": now_iso()}
     if data.day_definitions is not None:
         day_defs = []
@@ -273,6 +293,13 @@ async def update_schedule(schedule_id: str, data: ScheduleUpdate, current: dict 
         update["day_definitions"] = day_defs
     if data.doctor_constraints is not None:
         update["doctor_constraints"] = [c.dict() for c in data.doctor_constraints]
+    if "day_definitions" in update or "doctor_constraints" in update:
+        doctors = await db.doctors.find({}, {"_id": 0, "id": 1, "full_name": 1}).to_list(1000)
+        check_positive_days(
+            update.get("day_definitions", s["day_definitions"]),
+            update.get("doctor_constraints", s.get("doctor_constraints", [])),
+            {d["id"]: d["full_name"] for d in doctors},
+        )
     if data.shifts is not None:
         update["shifts"] = [s.dict() for s in data.shifts]
     if data.status is not None:
@@ -306,6 +333,7 @@ def participating_doctors(schedule: dict, doctors: list[dict]) -> list[dict]:
                 "id": d["id"],
                 "full_name": d["full_name"],
                 "negative_days": c.get("negative_days", []),
+                "positive_days": c.get("positive_days", []),
                 "leaves": c.get("leaves", []),
             }
         )
