@@ -99,7 +99,7 @@ export default function Dashboard() {
       <Modal visible={showRules} transparent animationType="slide" onRequestClose={() => setShowRules(false)}>
         <View style={{ flex: 1, justifyContent: 'flex-end' }}>
           <TouchableOpacity activeOpacity={1} style={styles.modalBackdrop} onPress={() => setShowRules(false)} />
-          <View style={styles.sheet}>
+          <View style={[styles.sheet, { paddingBottom: Theme.spacing.xl + insets.bottom }]}>
             <View style={styles.modalHandle} />
             <Text style={styles.sheetTitle}>Κανόνες Προγράμματος</Text>
             <ScrollView style={{ maxHeight: 460, marginTop: Theme.spacing.sm }}>
@@ -317,7 +317,6 @@ const styles = StyleSheet.create({
   sheet: {
     backgroundColor: Theme.colors.surface,
     padding: Theme.spacing.lg,
-    paddingBottom: Theme.spacing.xl,
     borderTopLeftRadius: Theme.radius.lg,
     borderTopRightRadius: Theme.radius.lg,
   },

@@ -178,7 +178,7 @@ export default function DoctorsScreen() {
           style={styles.modalRoot}
         >
           <TouchableOpacity activeOpacity={1} style={styles.modalBackdrop} onPress={() => setModalOpen(false)} />
-          <View style={styles.modalSheet}>
+          <View style={[styles.modalSheet, { paddingBottom: Theme.spacing.xl + insets.bottom }]}>
             <View style={styles.modalHandle} />
             <Text style={styles.modalTitle}>{editing ? 'Επεξεργασία Γιατρού' : 'Νέος Γιατρός'}</Text>
             <Text style={styles.label}>Ονοματεπώνυμο</Text>
@@ -275,7 +275,7 @@ const styles = StyleSheet.create({
   modalRoot: { flex: 1, justifyContent: 'flex-end' },
   modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: Theme.colors.overlay },
   modalSheet: {
-    backgroundColor: Theme.colors.surface, padding: Theme.spacing.lg, paddingBottom: Theme.spacing.xl,
+    backgroundColor: Theme.colors.surface, padding: Theme.spacing.lg,
     borderTopLeftRadius: Theme.radius.lg, borderTopRightRadius: Theme.radius.lg,
   },
   modalHandle: {

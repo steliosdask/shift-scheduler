@@ -364,7 +364,7 @@ export default function ScheduleEdit() {
       <Modal visible={!!editDay} transparent animationType="slide" onRequestClose={() => setEditDay(null)}>
         <View style={{ flex: 1, justifyContent: 'flex-end' }}>
           <TouchableOpacity activeOpacity={1} style={styles.modalBackdrop} onPress={() => setEditDay(null)} />
-          <View style={styles.sheet}>
+          <View style={[styles.sheet, { paddingBottom: Theme.spacing.xl + insets.bottom }]}>
             <View style={styles.modalHandle} />
             {editDay && (() => {
               const dd = dayDefMap[editDay];
@@ -439,7 +439,7 @@ export default function ScheduleEdit() {
       <Modal visible={showSummary} transparent animationType="slide" onRequestClose={() => setShowSummary(false)}>
         <View style={{ flex: 1, justifyContent: 'flex-end' }}>
           <TouchableOpacity activeOpacity={1} style={styles.modalBackdrop} onPress={() => setShowSummary(false)} />
-          <View style={styles.sheet}>
+          <View style={[styles.sheet, { paddingBottom: Theme.spacing.xl + insets.bottom }]}>
             <View style={styles.modalHandle} />
             <Text style={styles.sheetTitle}>Σύνοψη Εφημεριών</Text>
             <Text style={styles.sheetSub}>{GREEK_MONTHS[schedule.month]} {schedule.year}</Text>
@@ -543,7 +543,7 @@ const styles = StyleSheet.create({
   btnPrimaryText: { color: Theme.colors.textInverse, fontWeight: '700', fontSize: 13 },
   modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: Theme.colors.overlay },
   sheet: {
-    backgroundColor: Theme.colors.surface, padding: Theme.spacing.lg, paddingBottom: Theme.spacing.xl,
+    backgroundColor: Theme.colors.surface, padding: Theme.spacing.lg,
     borderTopLeftRadius: Theme.radius.lg, borderTopRightRadius: Theme.radius.lg,
   },
   modalHandle: { width: 40, height: 4, backgroundColor: Theme.colors.border, borderRadius: 2, alignSelf: 'center', marginBottom: Theme.spacing.md },
